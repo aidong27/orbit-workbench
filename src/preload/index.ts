@@ -3,6 +3,7 @@ import type {
   AcpSessionEvent,
   GrokConnectionEvent,
   GrokDesktopApi,
+  PermissionClearedEvent,
   PermissionRequestEvent,
   PermissionResolution,
 } from '../shared/types';
@@ -29,6 +30,8 @@ const api: GrokDesktopApi = {
   onSessionUpdate: (listener) => subscribe<AcpSessionEvent>('grok:session-update', listener),
   onPermissionRequest: (listener) =>
     subscribe<PermissionRequestEvent>('grok:permission-request', listener),
+  onPermissionCleared: (listener) =>
+    subscribe<PermissionClearedEvent>('grok:permission-cleared', listener),
   onConnectionEvent: (listener) =>
     subscribe<GrokConnectionEvent>('grok:connection-event', listener),
 };

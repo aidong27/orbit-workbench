@@ -1,6 +1,8 @@
 import type { AppAction, AppState, PlanEntry, TimelineItem, ToolItem, WorkSession } from './model';
 
 const PERSISTED_STATE_KEY = 'orbit-workbench-state-v1';
+const MAX_PERSISTED_SESSIONS = 40;
+const MAX_PERSISTED_TIMELINE_ITEMS = 160;
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -277,13 +279,38 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return updateSession(state, action.sessionId, (session) =>
         applyAcpUpdate(session, action.update),
       );
-    case 'CONNECTION':
+    case 'CONNECTION': {
+      const disconnected = action.status === 'offline' || action.status === 'error';
       return {
         ...state,
         connectionStatus: action.status,
         connectionDetail: action.detail ?? state.connectionDetail,
+        sessions: disconnected
+          ? state.sessions.map((session) =>
+              session.demo
+                ? session
+                : {
+                    ...session,
+                    acpSessionId: null,
+                    availableModes: [],
+                    status:
+                      session.status === 'working' ||
+                      session.status === 'connecting' ||
+                      session.status === 'awaiting_permission'
+                        ? 'failed'
+                        : session.status,
+                  },
+            )
+          : state.sessions,
+        pendingPermissions: disconnected ? [] : state.pendingPermissions,
       };
+    }
     case 'PERMISSION_REQUEST': {
+      if (
+        state.pendingPermissions.some((request) => request.requestId === action.request.requestId)
+      ) {
+        return state;
+      }
       const target = state.sessions.find(
         (session) => session.acpSessionId === action.request.sessionId,
       );
@@ -293,17 +320,28 @@ export function reducer(state: AppState, action: AppAction): AppState {
             status: 'awaiting_permission',
           }))
         : state;
-      return { ...next, pendingPermission: action.request };
+      return { ...next, pendingPermissions: [...state.pendingPermissions, action.request] };
     }
     case 'PERMISSION_CLEARED': {
-      if (state.pendingPermission?.requestId !== action.requestId) return state;
-      const target = state.sessions.find(
-        (session) => session.acpSessionId === state.pendingPermission?.sessionId,
+      const request = state.pendingPermissions.find((item) => item.requestId === action.requestId);
+      if (!request) return state;
+      const remaining = state.pendingPermissions.filter(
+        (item) => item.requestId !== action.requestId,
       );
+      const target = state.sessions.find((session) => session.acpSessionId === request.sessionId);
       const next = target
-        ? updateSession(state, target.id, (session) => ({ ...session, status: 'working' }))
+        ? updateSession(state, target.id, (session) =>
+            session.status === 'awaiting_permission'
+              ? {
+                  ...session,
+                  status: remaining.some((item) => item.sessionId === request.sessionId)
+                    ? 'awaiting_permission'
+                    : 'working',
+                }
+              : session,
+          )
         : state;
-      return { ...next, pendingPermission: null };
+      return { ...next, pendingPermissions: remaining };
     }
     case 'SIDEBAR_TOGGLED':
       return { ...state, sidebarCollapsed: !state.sidebarCollapsed };
@@ -322,34 +360,74 @@ export function reducer(state: AppState, action: AppAction): AppState {
   }
 }
 
+export function rehydrateState(fallback: AppState, saved: Partial<AppState>): AppState {
+  const sessions = Array.isArray(saved.sessions)
+    ? saved.sessions.map((session) => ({
+        ...session,
+        acpSessionId: null,
+        availableModes: [],
+        status:
+          session.status === 'working' ||
+          session.status === 'connecting' ||
+          session.status === 'awaiting_permission'
+            ? ('idle' as const)
+            : session.status,
+      }))
+    : fallback.sessions;
+
+  return {
+    ...fallback,
+    projects: Array.isArray(saved.projects) ? saved.projects : fallback.projects,
+    sessions,
+    activeProjectId: saved.activeProjectId ?? fallback.activeProjectId,
+    activeSessionId: saved.activeSessionId ?? fallback.activeSessionId,
+    sidebarCollapsed: saved.sidebarCollapsed ?? fallback.sidebarCollapsed,
+    inspectorOpen: saved.inspectorOpen ?? fallback.inspectorOpen,
+    inspectorTab: saved.inspectorTab ?? fallback.inspectorTab,
+  };
+}
+
 export function loadState(fallback: AppState): AppState {
   try {
     const raw = localStorage.getItem(PERSISTED_STATE_KEY);
     if (!raw) return fallback;
-    const saved = JSON.parse(raw) as Partial<AppState>;
-    return {
-      ...fallback,
-      projects: Array.isArray(saved.projects) ? saved.projects : fallback.projects,
-      sessions: Array.isArray(saved.sessions) ? saved.sessions : fallback.sessions,
-      activeProjectId: saved.activeProjectId ?? fallback.activeProjectId,
-      activeSessionId: saved.activeSessionId ?? fallback.activeSessionId,
-      sidebarCollapsed: saved.sidebarCollapsed ?? fallback.sidebarCollapsed,
-      inspectorOpen: saved.inspectorOpen ?? fallback.inspectorOpen,
-      inspectorTab: saved.inspectorTab ?? fallback.inspectorTab,
-    };
+    return rehydrateState(fallback, JSON.parse(raw) as Partial<AppState>);
   } catch {
     return fallback;
   }
 }
 
 export function saveState(state: AppState): void {
+  const activeSession = state.sessions.find((session) => session.id === state.activeSessionId);
+  const sessions = [
+    ...(activeSession ? [activeSession] : []),
+    ...state.sessions.filter((session) => session.id !== activeSession?.id),
+  ]
+    .slice(0, MAX_PERSISTED_SESSIONS)
+    .map((session) => ({
+      ...session,
+      acpSessionId: null,
+      availableModes: [],
+      timeline: session.timeline.slice(-MAX_PERSISTED_TIMELINE_ITEMS).map((item) =>
+        item.type === 'tool'
+          ? {
+              ...item,
+              content: undefined,
+              rawInput: undefined,
+              rawOutput: undefined,
+            }
+          : item,
+      ),
+      status:
+        session.status === 'working' ||
+        session.status === 'connecting' ||
+        session.status === 'awaiting_permission'
+          ? 'idle'
+          : session.status,
+    }));
   const persisted = {
     projects: state.projects,
-    sessions: state.sessions.map((session) => ({
-      ...session,
-      status:
-        session.status === 'working' || session.status === 'connecting' ? 'idle' : session.status,
-    })),
+    sessions,
     activeProjectId: state.activeProjectId,
     activeSessionId: state.activeSessionId,
     sidebarCollapsed: state.sidebarCollapsed,

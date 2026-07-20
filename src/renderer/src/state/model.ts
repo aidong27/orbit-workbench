@@ -91,7 +91,7 @@ export interface AppState {
   activeSessionId: string | null;
   connectionStatus: ConnectionStatus;
   connectionDetail: string;
-  pendingPermission: PermissionRequestEvent | null;
+  pendingPermissions: PermissionRequestEvent[];
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
   inspectorTab: InspectorTab;
@@ -127,10 +127,14 @@ export type AppAction =
   | { type: 'SETTINGS'; open: boolean }
   | { type: 'APP_VERSION'; version: string };
 
-export function makeProject(summary: ProjectSummary): WorkspaceProject {
+export function makeProject(
+  summary: ProjectSummary,
+  existingProjects: WorkspaceProject[] = [],
+): WorkspaceProject {
+  const existing = existingProjects.find((project) => project.path === summary.path);
   return {
     ...summary,
-    id: crypto.randomUUID(),
+    id: existing?.id ?? crypto.randomUUID(),
     addedAt: Date.now(),
   };
 }

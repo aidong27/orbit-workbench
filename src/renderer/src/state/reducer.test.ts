@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { AppState, WorkSession } from './model';
-import { reducer } from './reducer';
+import type { AppState, WorkSession, WorkspaceProject } from './model';
+import { makeProject, makeSession } from './model';
+import { reducer, rehydrateState } from './reducer';
 
 function sessionFixture(overrides: Partial<WorkSession> = {}): WorkSession {
   return {
@@ -26,7 +27,7 @@ function stateFixture(session = sessionFixture()): AppState {
     activeSessionId: session.id,
     connectionStatus: 'ready',
     connectionDetail: 'connected',
-    pendingPermission: null,
+    pendingPermissions: [],
     sidebarCollapsed: false,
     inspectorOpen: true,
     inspectorTab: 'changes',
@@ -37,6 +38,80 @@ function stateFixture(session = sessionFixture()): AppState {
 }
 
 describe('Grok ACP 状态归一化', () => {
+  it('reuses the stored project id when the same workspace is opened again', () => {
+    const existing: WorkspaceProject = {
+      id: 'stored-project',
+      name: 'workspace',
+      path: '/tmp/workspace',
+      branch: 'main',
+      isGitRepository: true,
+      changedFiles: 0,
+      statusLines: [],
+      diffStat: '',
+      addedAt: 1,
+    };
+    const state = {
+      ...stateFixture(sessionFixture({ projectId: existing.id })),
+      projects: [existing],
+      activeProjectId: existing.id,
+    };
+    const reopened = makeProject(
+      {
+        name: 'workspace',
+        path: '/tmp/workspace',
+        branch: 'feature',
+        isGitRepository: true,
+        changedFiles: 1,
+        statusLines: ['M src/app.tsx'],
+        diffStat: '1 file changed',
+      },
+      state.projects,
+    );
+    const withProject = reducer(state, { type: 'PROJECT_ADDED', project: reopened });
+    const next = reducer(withProject, {
+      type: 'SESSION_CREATED',
+      session: makeSession(reopened.id),
+    });
+
+    expect(reopened.id).toBe(existing.id);
+    expect(next.projects).toHaveLength(1);
+    expect(next.activeProjectId).toBe(existing.id);
+    expect(next.sessions[0]?.projectId).toBe(existing.id);
+  });
+
+  it('drops stale ACP process state when restoring persisted sessions', () => {
+    const fallback = stateFixture();
+    const restored = rehydrateState(fallback, {
+      sessions: [
+        sessionFixture({
+          acpSessionId: 'stale-process-session',
+          status: 'awaiting_permission',
+          availableModes: [{ id: 'plan', name: '计划' }],
+        }),
+      ],
+    });
+
+    expect(restored.sessions[0]).toMatchObject({
+      acpSessionId: null,
+      status: 'idle',
+      availableModes: [],
+    });
+  });
+
+  it('detaches live ACP sessions when the child process disconnects', () => {
+    const disconnected = reducer(
+      stateFixture(sessionFixture({ status: 'working', acpSessionId: 'live-session' })),
+      { type: 'CONNECTION', status: 'error', detail: 'ACP exited' },
+    );
+
+    expect(disconnected.sessions[0]).toMatchObject({
+      acpSessionId: null,
+      status: 'failed',
+      availableModes: [],
+    });
+    expect(disconnected.connectionDetail).toBe('ACP exited');
+  });
+
   it('adds a user message and derives the initial title', () => {
     const next = reducer(stateFixture(), {
       type: 'USER_MESSAGE',
@@ -158,13 +233,82 @@ describe('Grok ACP 状态归一化', () => {
       },
     });
     expect(requested.sessions[0]?.status).toBe('awaiting_permission');
-    expect(requested.pendingPermission?.requestId).toBe('permission-1');
+    expect(requested.pendingPermissions[0]?.requestId).toBe('permission-1');
 
     const cleared = reducer(requested, {
       type: 'PERMISSION_CLEARED',
       requestId: 'permission-1',
     });
     expect(cleared.sessions[0]?.status).toBe('working');
-    expect(cleared.pendingPermission).toBeNull();
+    expect(cleared.pendingPermissions).toHaveLength(0);
+  });
+
+  it('queues concurrent permission requests without losing either session', () => {
+    const secondSession = sessionFixture({
+      id: 'local-session-2',
+      projectId: 'project-2',
+      acpSessionId: 'acp-session-2',
+    });
+    const state = { ...stateFixture(), sessions: [sessionFixture(), secondSession] };
+    const first = reducer(state, {
+      type: 'PERMISSION_REQUEST',
+      request: {
+        requestId: 'permission-1',
+        sessionId: 'acp-session',
+        toolCall: { title: '写入文件' },
+        options: [],
+      },
+    });
+    const queued = reducer(first, {
+      type: 'PERMISSION_REQUEST',
+      request: {
+        requestId: 'permission-2',
+        sessionId: 'acp-session-2',
+        toolCall: { title: '运行命令' },
+        options: [],
+      },
+    });
+    const cleared = reducer(queued, {
+      type: 'PERMISSION_CLEARED',
+      requestId: 'permission-1',
+    });
+
+    expect(queued.pendingPermissions.map((request) => request.requestId)).toEqual([
+      'permission-1',
+      'permission-2',
+    ]);
+    expect(cleared.pendingPermissions[0]?.requestId).toBe('permission-2');
+    expect(cleared.sessions.find((session) => session.id === 'local-session')?.status).toBe(
+      'working',
+    );
+    expect(cleared.sessions.find((session) => session.id === 'local-session-2')?.status).toBe(
+      'awaiting_permission',
+    );
+  });
+
+  it('does not revive a terminal session when an expired permission is cleared', () => {
+    const requested = reducer(stateFixture(), {
+      type: 'PERMISSION_REQUEST',
+      request: {
+        requestId: 'permission-expired',
+        sessionId: 'acp-session',
+        toolCall: { title: '等待超时' },
+        options: [],
+      },
+    });
+    const completed = {
+      ...requested,
+      sessions: requested.sessions.map((session) => ({
+        ...session,
+        status: 'completed' as const,
+      })),
+    };
+    const cleared = reducer(completed, {
+      type: 'PERMISSION_CLEARED',
+      requestId: 'permission-expired',
+    });
+
+    expect(cleared.sessions[0]?.status).toBe('completed');
+    expect(cleared.pendingPermissions).toHaveLength(0);
   });
 });

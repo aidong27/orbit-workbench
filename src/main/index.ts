@@ -2,12 +2,31 @@ import { execFile } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  type OpenDialogOptions,
+  shell,
+} from 'electron';
 import type { PermissionResolution, ProjectSummary } from '../shared/types';
 import { GrokAcpManager, inspectGrokBinary } from './grok-acp';
 
 const execFileAsync = promisify(execFile);
 const grok = new GrokAcpManager();
+const trustedWebContentsIds = new Set<number>();
+
+function assertTrustedSender(event: IpcMainInvokeEvent): void {
+  if (
+    !trustedWebContentsIds.has(event.sender.id) ||
+    !event.senderFrame ||
+    event.senderFrame !== event.sender.mainFrame
+  ) {
+    throw new Error('已拒绝来自非受信任窗口的请求。');
+  }
+}
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -75,11 +94,17 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
     },
   });
 
+  trustedWebContentsIds.add(window.webContents.id);
   const unregister = grok.registerWebContents(window.webContents);
-  window.on('closed', unregister);
+  window.on('closed', () => {
+    unregister();
+    trustedWebContentsIds.delete(window.webContents.id);
+  });
   window.once('ready-to-show', () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) void shell.openExternal(url);
@@ -87,8 +112,9 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on('will-navigate', (event) => event.preventDefault());
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL);
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  if (!app.isPackaged && rendererUrl) {
+    void window.loadURL(rendererUrl);
   } else {
     void window.loadFile(new URL('../renderer/index.html', import.meta.url).pathname);
   }
@@ -96,14 +122,18 @@ function createWindow(): BrowserWindow {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('app:info', () => ({
-    version: app.getVersion(),
-    platform: process.platform,
-    arch: process.arch,
-    isPackaged: app.isPackaged,
-  }));
+  ipcMain.handle('app:info', (event) => {
+    assertTrustedSender(event);
+    return {
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+    };
+  });
 
-  ipcMain.handle('workspace:choose', async () => {
+  ipcMain.handle('workspace:choose', async (event) => {
+    assertTrustedSender(event);
     const active = BrowserWindow.getFocusedWindow();
     const options: OpenDialogOptions = {
       title: '选择 Grok Build 工作区',
@@ -116,27 +146,41 @@ function registerIpc(): void {
     const selected = result.filePaths[0];
     return result.canceled || !selected ? null : inspectProject(selected);
   });
-  ipcMain.handle('workspace:inspect', (_event, path: string) => inspectProject(path));
+  ipcMain.handle('workspace:inspect', (event, path: string) => {
+    assertTrustedSender(event);
+    return inspectProject(path);
+  });
 
-  ipcMain.handle('grok:check', () => inspectGrokBinary());
-  ipcMain.handle('grok:connect', () => grok.connect());
-  ipcMain.handle('grok:create-session', (_event, cwd: string) =>
-    validateDirectory(cwd).then((safeCwd) => grok.createSession(safeCwd)),
-  );
-  ipcMain.handle('grok:send-prompt', (_event, sessionId: string, text: string) => {
+  ipcMain.handle('grok:check', (event) => {
+    assertTrustedSender(event);
+    return inspectGrokBinary();
+  });
+  ipcMain.handle('grok:connect', (event) => {
+    assertTrustedSender(event);
+    return grok.connect();
+  });
+  ipcMain.handle('grok:create-session', (event, cwd: string) => {
+    assertTrustedSender(event);
+    return validateDirectory(cwd).then((safeCwd) => grok.createSession(safeCwd));
+  });
+  ipcMain.handle('grok:send-prompt', (event, sessionId: string, text: string) => {
+    assertTrustedSender(event);
     const prompt = text.trim();
     if (!sessionId || !prompt) throw new Error('会话与任务内容不能为空。');
     return grok.sendPrompt(sessionId, prompt);
   });
-  ipcMain.handle('grok:cancel-session', (_event, sessionId: string) =>
-    grok.cancelSession(sessionId),
-  );
-  ipcMain.handle('grok:set-mode', (_event, sessionId: string, modeId: string) =>
-    grok.setSessionMode(sessionId, modeId),
-  );
-  ipcMain.handle('grok:resolve-permission', (_event, resolution: PermissionResolution) =>
-    grok.resolvePermission(resolution),
-  );
+  ipcMain.handle('grok:cancel-session', (event, sessionId: string) => {
+    assertTrustedSender(event);
+    return grok.cancelSession(sessionId);
+  });
+  ipcMain.handle('grok:set-mode', (event, sessionId: string, modeId: string) => {
+    assertTrustedSender(event);
+    return grok.setSessionMode(sessionId, modeId);
+  });
+  ipcMain.handle('grok:resolve-permission', (event, resolution: PermissionResolution) => {
+    assertTrustedSender(event);
+    return grok.resolvePermission(resolution);
+  });
 }
 
 app.whenReady().then(() => {

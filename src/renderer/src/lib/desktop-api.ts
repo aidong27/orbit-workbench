@@ -2,11 +2,13 @@ import type {
   AcpSessionEvent,
   GrokConnectionEvent,
   GrokDesktopApi,
+  PermissionClearedEvent,
   PermissionRequestEvent,
 } from '../../../shared/types';
 
 const sessionListeners = new Set<(event: AcpSessionEvent) => void>();
 const permissionListeners = new Set<(event: PermissionRequestEvent) => void>();
+const permissionClearedListeners = new Set<(event: PermissionClearedEvent) => void>();
 const connectionListeners = new Set<(event: GrokConnectionEvent) => void>();
 
 const wait = (milliseconds: number): Promise<void> =>
@@ -135,6 +137,10 @@ const browserPreviewApi: GrokDesktopApi = {
   onPermissionRequest: (listener) => {
     permissionListeners.add(listener);
     return () => permissionListeners.delete(listener);
+  },
+  onPermissionCleared: (listener) => {
+    permissionClearedListeners.add(listener);
+    return () => permissionClearedListeners.delete(listener);
   },
   onConnectionEvent: (listener) => {
     connectionListeners.add(listener);

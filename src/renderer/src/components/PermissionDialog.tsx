@@ -4,10 +4,11 @@ import { compactJson } from '../lib/format';
 
 interface PermissionDialogProps {
   request: PermissionRequestEvent;
+  remainingCount: number;
   onResolve: (optionId?: string, cancelled?: boolean) => void;
 }
 
-export function PermissionDialog({ request, onResolve }: PermissionDialogProps) {
+export function PermissionDialog({ request, remainingCount, onResolve }: PermissionDialogProps) {
   const toolTitle = String(request.toolCall.title ?? 'Grok 请求执行工具');
   const rawInput = compactJson(request.toolCall.rawInput);
   return (
@@ -25,6 +26,7 @@ export function PermissionDialog({ request, onResolve }: PermissionDialogProps) 
           <span>需要你的确认</span>
           <h2 id="permission-title">{toolTitle}</h2>
           <p>Grok Build 在继续之前需要获得这次操作的权限。</p>
+          {remainingCount > 0 && <p>完成后还有 {remainingCount} 项请求等待确认。</p>}
         </div>
         {rawInput && (
           <div className="permission-command">

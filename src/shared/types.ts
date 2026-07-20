@@ -85,6 +85,10 @@ export interface PermissionResolution {
   cancelled?: boolean;
 }
 
+export interface PermissionClearedEvent {
+  requestId: string;
+}
+
 export interface GrokDesktopApi {
   getAppInfo(): Promise<AppInfo>;
   chooseDirectory(): Promise<ProjectSummary | null>;
@@ -98,5 +102,6 @@ export interface GrokDesktopApi {
   resolvePermission(resolution: PermissionResolution): Promise<void>;
   onSessionUpdate(listener: (event: AcpSessionEvent) => void): () => void;
   onPermissionRequest(listener: (event: PermissionRequestEvent) => void): () => void;
+  onPermissionCleared(listener: (event: PermissionClearedEvent) => void): () => void;
   onConnectionEvent(listener: (event: GrokConnectionEvent) => void): () => void;
 }

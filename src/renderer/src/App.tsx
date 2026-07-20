@@ -40,12 +40,16 @@ export default function App() {
     const offPermission = desktopApi.onPermissionRequest((event) => {
       dispatch({ type: 'PERMISSION_REQUEST', request: event });
     });
+    const offPermissionCleared = desktopApi.onPermissionCleared((event) => {
+      dispatch({ type: 'PERMISSION_CLEARED', requestId: event.requestId });
+    });
     const offConnection = desktopApi.onConnectionEvent((event) => {
       dispatch({ type: 'CONNECTION', status: event.status, detail: event.detail });
     });
     return () => {
       offUpdate();
       offPermission();
+      offPermissionCleared();
       offConnection();
     };
   }, []);
@@ -79,16 +83,12 @@ export default function App() {
     try {
       const summary = await desktopApi.chooseDirectory();
       if (!summary) return;
-      const project = makeProject(summary);
+      const project = makeProject(summary, stateRef.current.projects);
       dispatch({ type: 'PROJECT_ADDED', project });
       const session = makeSession(project.id);
       dispatch({ type: 'SESSION_CREATED', session });
     } catch (error) {
-      dispatch({
-        type: 'CONNECTION',
-        status: 'error',
-        detail: error instanceof Error ? error.message : '无法打开工作区',
-      });
+      window.alert(error instanceof Error ? error.message : '无法打开工作区');
     }
   }, []);
 
@@ -197,7 +197,7 @@ export default function App() {
   }, []);
 
   const resolvePermission = useCallback(async (optionId?: string, cancelled?: boolean) => {
-    const request = stateRef.current.pendingPermission;
+    const request = stateRef.current.pendingPermissions[0];
     if (!request) return;
     await desktopApi.resolvePermission({ requestId: request.requestId, optionId, cancelled });
     dispatch({ type: 'PERMISSION_CLEARED', requestId: request.requestId });
@@ -300,8 +300,12 @@ export default function App() {
         connectionDetail={`${state.connectionDetail}${isBrowserPreview ? ' · 当前为浏览器视觉预览' : ''}`}
         onClose={() => dispatch({ type: 'SETTINGS', open: false })}
       />
-      {state.pendingPermission && (
-        <PermissionDialog request={state.pendingPermission} onResolve={resolvePermission} />
+      {state.pendingPermissions[0] && (
+        <PermissionDialog
+          request={state.pendingPermissions[0]}
+          remainingCount={state.pendingPermissions.length - 1}
+          onResolve={resolvePermission}
+        />
       )}
     </div>
   );

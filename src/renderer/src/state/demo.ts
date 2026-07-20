@@ -111,7 +111,7 @@ export const initialState: AppState = {
   activeSessionId: demoSession.id,
   connectionStatus: 'checking',
   connectionDetail: '正在检查本机 Grok Build…',
-  pendingPermission: null,
+  pendingPermissions: [],
   sidebarCollapsed: false,
   inspectorOpen: true,
   inspectorTab: 'changes',

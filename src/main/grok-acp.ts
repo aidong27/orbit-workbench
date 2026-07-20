@@ -253,28 +253,19 @@ export class GrokAcpManager {
   async sendPrompt(sessionId: string, text: string): Promise<PromptResult> {
     await this.connect();
     if (!this.connection) throw new Error('Grok ACP 尚未连接。');
-    try {
-      const response = await this.connection.prompt({
-        sessionId,
-        prompt: [{ type: 'text', text }],
-      });
-      this.broadcast('grok:session-update', {
-        sessionId,
-        update: {
-          sessionUpdate: 'client_turn_complete',
-          stopReason: response.stopReason,
-          usage: response.usage,
-        },
-      } satisfies AcpSessionEvent);
-      return { sessionId, stopReason: response.stopReason, usage: response.usage };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Grok 执行失败。';
-      this.broadcast('grok:session-update', {
-        sessionId,
-        update: { sessionUpdate: 'client_turn_error', detail },
-      } satisfies AcpSessionEvent);
-      throw error;
-    }
+    const response = await this.connection.prompt({
+      sessionId,
+      prompt: [{ type: 'text', text }],
+    });
+    this.broadcast('grok:session-update', {
+      sessionId,
+      update: {
+        sessionUpdate: 'client_turn_complete',
+        stopReason: response.stopReason,
+        usage: response.usage,
+      },
+    } satisfies AcpSessionEvent);
+    return { sessionId, stopReason: response.stopReason, usage: response.usage };
   }
 
   async cancelSession(sessionId: string): Promise<void> {
@@ -295,6 +286,7 @@ export class GrokAcpManager {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pendingPermissions.delete(resolution.requestId);
+    this.broadcast('grok:permission-cleared', { requestId: resolution.requestId });
     if (resolution.cancelled || !resolution.optionId) {
       pending.resolve({ outcome: { outcome: 'cancelled' } });
       return;
@@ -312,6 +304,7 @@ export class GrokAcpManager {
       const timer = setTimeout(() => {
         this.pendingPermissions.delete(requestId);
         resolve({ outcome: { outcome: 'cancelled' } });
+        this.broadcast('grok:permission-cleared', { requestId });
       }, PERMISSION_TIMEOUT_MS);
       timer.unref();
       this.pendingPermissions.set(requestId, { sessionId: params.sessionId, timer, resolve });
