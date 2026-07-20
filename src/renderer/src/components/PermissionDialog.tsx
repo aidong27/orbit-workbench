@@ -1,4 +1,5 @@
 import { AlertTriangle, Ban, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { PermissionRequestEvent } from '../../../shared/types';
 import { compactJson } from '../lib/format';
 
@@ -11,6 +12,10 @@ interface PermissionDialogProps {
 export function PermissionDialog({ request, remainingCount, onResolve }: PermissionDialogProps) {
   const toolTitle = String(request.toolCall.title ?? 'Grok 请求执行工具');
   const rawInput = compactJson(request.toolCall.rawInput);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => cancelRef.current?.focus(), []);
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section
@@ -18,6 +23,13 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
         role="dialog"
         aria-modal="true"
         aria-labelledby="permission-title"
+        aria-describedby="permission-description"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onResolve(undefined, true);
+          }
+        }}
       >
         <div className="permission-dialog__icon">
           <ShieldCheck size={20} />
@@ -25,7 +37,7 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
         <div className="permission-dialog__heading">
           <span>需要你的确认</span>
           <h2 id="permission-title">{toolTitle}</h2>
-          <p>Grok Build 在继续之前需要获得这次操作的权限。</p>
+          <p id="permission-description">Grok Build 在继续之前需要获得这次操作的权限。</p>
           {remainingCount > 0 && <p>完成后还有 {remainingCount} 项请求等待确认。</p>}
         </div>
         {rawInput && (
@@ -39,13 +51,11 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
           <span>请确认路径、命令和影响范围符合你的预期。</span>
         </div>
         <div className="permission-options">
-          {request.options.map((option, index) => (
+          {request.options.map((option) => (
             <button
               type="button"
               key={option.optionId}
-              className={
-                option.kind.includes('allow') || index === 0 ? 'permission-option--primary' : ''
-              }
+              className={option.kind.includes('allow') ? 'permission-option--primary' : ''}
               onClick={() => onResolve(option.optionId, false)}
             >
               <span>{option.name}</span>
@@ -53,6 +63,7 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
             </button>
           ))}
           <button
+            ref={cancelRef}
             type="button"
             className="permission-option--cancel"
             onClick={() => onResolve(undefined, true)}

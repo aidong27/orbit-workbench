@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppState, WorkSession, WorkspaceProject } from './model';
-import { makeProject, makeSession } from './model';
-import { reducer, rehydrateState } from './reducer';
+import { makeProject, makeSession, sessionBlocksInput } from './model';
+import { reducer, rehydrateState, saveState } from './reducer';
+
+afterEach(() => vi.unstubAllGlobals());
 
 function sessionFixture(overrides: Partial<WorkSession> = {}): WorkSession {
   return {
@@ -34,10 +36,18 @@ function stateFixture(session = sessionFixture()): AppState {
     commandPaletteOpen: false,
     settingsOpen: false,
     appVersion: 'test',
+    appPlatform: 'darwin',
+    appArch: 'arm64',
   };
 }
 
 describe('Grok ACP 状态归一化', () => {
+  it('blocks a second prompt while a permission decision is pending', () => {
+    expect(sessionBlocksInput('awaiting_permission')).toBe(true);
+    expect(sessionBlocksInput('working')).toBe(true);
+    expect(sessionBlocksInput('completed')).toBe(false);
+  });
+
   it('reuses the stored project id when the same workspace is opened again', () => {
     const existing: WorkspaceProject = {
       id: 'stored-project',
@@ -186,6 +196,70 @@ describe('Grok ACP 状态归一化', () => {
       rawInput: { command: 'pnpm test' },
       rawOutput: '12 tests passed',
     });
+  });
+
+  it('bounds large tool payloads and long in-memory timelines', () => {
+    const withLargeTool = reducer(stateFixture(), {
+      type: 'ACP_UPDATE',
+      sessionId: 'local-session',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'large-tool',
+        rawOutput: 'x'.repeat(60_000),
+      },
+    });
+    const tool = withLargeTool.sessions[0]?.timeline[0];
+    expect(tool?.type).toBe('tool');
+    if (tool?.type === 'tool') {
+      expect(String(tool.rawOutput).length).toBeLessThan(51_000);
+      expect(String(tool.rawOutput)).toContain('内容已截断');
+    }
+
+    let current = stateFixture();
+    for (let index = 0; index < 620; index += 1) {
+      current = reducer(current, {
+        type: 'USER_MESSAGE',
+        sessionId: 'local-session',
+        text: `message-${index}`,
+      });
+    }
+    expect(current.sessions[0]?.timeline).toHaveLength(600);
+  });
+
+  it('does not persist tool payloads or file locations', () => {
+    const setItem = vi.fn();
+    vi.stubGlobal('localStorage', { setItem });
+    const state = stateFixture(
+      sessionFixture({
+        timeline: [
+          {
+            id: 'tool-sensitive',
+            type: 'tool',
+            toolCallId: 'tool-sensitive',
+            title: '读取私有文件',
+            kind: 'read',
+            status: 'completed',
+            content: 'private content',
+            rawInput: { path: '/Users/alice/private.txt' },
+            rawOutput: 'secret result',
+            locations: [{ path: '/Users/alice/private.txt', line: 1 }],
+            createdAt: 1,
+          },
+        ],
+      }),
+    );
+
+    saveState(state);
+
+    const raw = setItem.mock.calls[0]?.[1];
+    expect(typeof raw).toBe('string');
+    const saved = JSON.parse(String(raw)) as AppState;
+    const item = saved.sessions[0]?.timeline[0];
+    expect(item).toMatchObject({ type: 'tool', title: '读取私有文件' });
+    expect(item).not.toHaveProperty('content');
+    expect(item).not.toHaveProperty('rawInput');
+    expect(item).not.toHaveProperty('rawOutput');
+    expect(item).not.toHaveProperty('locations');
   });
 
   it('stores the latest plan and finalizes a streamed turn', () => {

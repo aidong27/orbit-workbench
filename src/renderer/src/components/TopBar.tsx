@@ -1,12 +1,4 @@
-import {
-  Bot,
-  ChevronDown,
-  GitBranch,
-  PanelRightClose,
-  PanelRightOpen,
-  RefreshCw,
-  Sparkles,
-} from 'lucide-react';
+import { Bot, GitBranch, PanelRightClose, PanelRightOpen, RefreshCw, Sparkles } from 'lucide-react';
 import { modeLabel, statusLabel } from '../lib/format';
 import type { WorkSession, WorkspaceProject } from '../state/model';
 
@@ -57,11 +49,10 @@ export function TopBar({
           <Bot size={14} />
           <span>Grok Build</span>
         </div>
-        <button type="button" className="mode-pill" title="会话模式可在输入框中切换">
+        <div className="mode-pill" title="会话模式可在输入框中切换">
           <Sparkles size={13} />
           <span>{modeLabel(session?.currentModeId ?? null)}</span>
-          <ChevronDown size={12} />
-        </button>
+        </div>
         {session && (
           <span className={`session-state session-state--${session.status}`}>
             {statusLabel(session.status)}

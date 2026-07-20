@@ -118,6 +118,22 @@ a {
     radial-gradient(circle at 56% -20%, rgba(187, 154, 247, 0.07), transparent 35%), var(--bg);
 }
 
+.app-shell.platform-win32 .sidebar__brand {
+  padding-left: 16px;
+}
+
+.app-shell.platform-win32 .sidebar__traffic-spacer {
+  height: 12px;
+}
+
+.app-shell.platform-win32 .sidebar--collapsed .sidebar__collapse {
+  top: 12px;
+}
+
+.app-shell.platform-win32 .sidebar--collapsed .orbit-mark {
+  margin-top: 42px;
+}
+
 .icon-button {
   display: inline-grid;
   width: 30px;
@@ -158,35 +174,45 @@ kbd {
   overflow: visible;
 }
 
-.orbit-mark__ring {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.1;
-  stroke-dasharray: 43 18;
-  stroke-linecap: round;
+.orbit-mark__system {
   transform-origin: center;
-  transform: rotate(-28deg);
 }
 
-.orbit-mark__slash {
+.orbit-mark__system ellipse {
   fill: none;
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linecap: round;
+  stroke: rgba(225, 225, 225, 0.88);
+  stroke-width: 1.05;
 }
 
-.orbit-mark__star {
+.orbit-mark__system ellipse:nth-child(2) {
+  stroke: rgba(125, 207, 255, 0.72);
+}
+
+.orbit-mark__system ellipse:nth-child(3) {
+  stroke: rgba(187, 154, 247, 0.64);
+}
+
+.orbit-mark__node {
   fill: var(--accent);
-  filter: drop-shadow(0 0 5px rgba(187, 154, 247, 0.42));
 }
 
-.orbit-mark--active .orbit-mark__ring {
-  animation: orbit-rotation 9s linear infinite;
+.orbit-mark__node--cyan {
+  fill: var(--cyan);
+  filter: drop-shadow(0 0 3px rgba(125, 207, 255, 0.5));
+}
+
+.orbit-mark__core {
+  fill: var(--text-strong);
+  filter: drop-shadow(0 0 4px rgba(187, 154, 247, 0.48));
+}
+
+.orbit-mark--active .orbit-mark__system {
+  animation: orbit-rotation 14s linear infinite;
 }
 
 @keyframes orbit-rotation {
   to {
-    transform: rotate(332deg);
+    transform: rotate(360deg);
   }
 }
 
@@ -330,7 +356,7 @@ kbd {
   color: var(--faint);
 }
 
-.sidebar-section__heading button:hover {
+.sidebar-section__heading button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text);
 }
@@ -691,10 +717,6 @@ kbd {
 }
 .engine-pill--error .engine-pill__pulse {
   background: var(--red);
-}
-.mode-pill:hover {
-  border-color: var(--border-strong);
-  color: var(--text-soft);
 }
 
 .session-state {

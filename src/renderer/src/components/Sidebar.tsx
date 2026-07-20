@@ -34,6 +34,7 @@ export function Sidebar({
   onOpenCommands,
   onOpenSettings,
 }: SidebarProps) {
+  const shortcutPrefix = state.appPlatform === 'darwin' ? '⌘' : 'Ctrl+';
   if (state.sidebarCollapsed) {
     return (
       <aside className="sidebar sidebar--collapsed">
@@ -104,12 +105,12 @@ export function Sidebar({
         <button type="button" className="new-task-button" onClick={onNewSession}>
           <Plus size={16} />
           <span>新建任务</span>
-          <kbd>⌘N</kbd>
+          <kbd>{shortcutPrefix}N</kbd>
         </button>
         <button type="button" className="command-button" onClick={onOpenCommands}>
           <Search size={15} />
           <span>搜索与命令</span>
-          <kbd>⌘K</kbd>
+          <kbd>{shortcutPrefix}K</kbd>
         </button>
       </div>
 
@@ -145,7 +146,12 @@ export function Sidebar({
         <section className="sidebar-section sidebar-section--sessions">
           <div className="sidebar-section__heading">
             <span>最近任务</span>
-            <button type="button" aria-label="会话排序">
+            <button
+              type="button"
+              aria-label="会话排序（即将支持）"
+              title="排序选项即将支持"
+              disabled
+            >
               <ChevronsUpDown size={14} />
             </button>
           </div>
@@ -182,7 +188,7 @@ export function Sidebar({
         <button type="button" onClick={onOpenSettings}>
           <Settings size={15} />
           <span>设置</span>
-          <kbd>⌘,</kbd>
+          <kbd>{shortcutPrefix},</kbd>
         </button>
         <div className="sidebar__engine">
           <span className={`connection-dot connection-${state.connectionStatus}`} />

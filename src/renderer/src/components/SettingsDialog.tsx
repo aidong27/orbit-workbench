@@ -4,6 +4,8 @@ import { OrbitMark } from './OrbitMark';
 interface SettingsDialogProps {
   open: boolean;
   version: string;
+  platform: string;
+  arch: string;
   connectionStatus: string;
   connectionDetail: string;
   onClose: () => void;
@@ -12,6 +14,8 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   open,
   version,
+  platform,
+  arch,
   connectionStatus,
   connectionDetail,
   onClose,
@@ -31,7 +35,9 @@ export function SettingsDialog({
             <OrbitMark size={28} active={connectionStatus === 'ready'} />
             <span>
               <strong>设置与关于</strong>
-              <small>星轨工作台 {version}</small>
+              <small>
+                星轨工作台 {version} · {platform}/{arch}
+              </small>
             </span>
           </div>
           <button type="button" className="icon-button" onClick={onClose}>
@@ -79,7 +85,7 @@ export function SettingsDialog({
           </section>
         </div>
         <footer>
-          <span>私有预览 · 尚未公开发布</span>
+          <span>开源预览 · Apache-2.0</span>
           <button type="button" onClick={onClose}>
             完成
           </button>

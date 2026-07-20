@@ -5,6 +5,7 @@ import type {
   PermissionClearedEvent,
   PermissionRequestEvent,
 } from '../../../shared/types';
+import { shouldUseBrowserPreview } from './runtime';
 
 const sessionListeners = new Set<(event: AcpSessionEvent) => void>();
 const permissionListeners = new Set<(event: PermissionRequestEvent) => void>();
@@ -14,19 +15,27 @@ const connectionListeners = new Set<(event: GrokConnectionEvent) => void>();
 const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
+const previewIsWindows = navigator.userAgent.includes('Windows');
+const previewPlatform = previewIsWindows ? 'win32' : 'darwin';
+const previewArch = previewIsWindows ? 'x64' : 'arm64';
+const previewHome = previewIsWindows ? 'C:\\Users\\demo' : '/Users/demo';
+
 function emitSession(event: AcpSessionEvent): void {
   for (const listener of sessionListeners) listener(event);
 }
 
 const browserPreviewApi: GrokDesktopApi = {
+  reportRendererReady: async () => undefined,
   getAppInfo: async () => ({
-    version: '0.1.0-alpha.1',
-    platform: 'darwin',
-    arch: 'arm64',
+    version: '0.2.0-alpha.1',
+    platform: previewPlatform,
+    arch: previewArch,
     isPackaged: false,
   }),
   chooseDirectory: async () => ({
-    path: '/Users/demo/Projects/orbit-console',
+    path: previewIsWindows
+      ? 'C:\\Users\\demo\\Projects\\orbit-console'
+      : '/Users/demo/Projects/orbit-console',
     name: 'orbit-console',
     branch: 'main',
     isGitRepository: true,
@@ -36,7 +45,7 @@ const browserPreviewApi: GrokDesktopApi = {
   }),
   inspectProject: async (path) => ({
     path,
-    name: path.split('/').at(-1) ?? 'workspace',
+    name: path.split(/[\\/]/u).at(-1) ?? 'workspace',
     branch: 'main',
     isGitRepository: true,
     changedFiles: 0,
@@ -45,7 +54,9 @@ const browserPreviewApi: GrokDesktopApi = {
   }),
   checkGrok: async () => ({
     status: 'ready',
-    binaryPath: '/Users/demo/.grok/bin/grok',
+    binaryPath: previewIsWindows
+      ? `${previewHome}\\.grok\\bin\\grok.exe`
+      : `${previewHome}/.grok/bin/grok`,
     version: 'grok 0.2.99（浏览器预览）',
     authenticated: true,
   }),
@@ -148,5 +159,16 @@ const browserPreviewApi: GrokDesktopApi = {
   },
 };
 
-export const desktopApi = window.grokDesktop ?? browserPreviewApi;
-export const isBrowserPreview = !window.grokDesktop;
+export const isBrowserPreview = shouldUseBrowserPreview(
+  Boolean(window.grokDesktop),
+  import.meta.env.DEV,
+  navigator.userAgent,
+);
+
+function resolveDesktopApi(): GrokDesktopApi {
+  if (window.grokDesktop) return window.grokDesktop;
+  if (isBrowserPreview) return browserPreviewApi;
+  throw new Error('Electron 安全桥接未加载，应用已停止以避免显示伪造状态。');
+}
+
+export const desktopApi = resolveDesktopApi();

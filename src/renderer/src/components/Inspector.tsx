@@ -24,6 +24,7 @@ import type {
 interface InspectorProps {
   project: WorkspaceProject | null;
   session: WorkSession | null;
+  appVersion: string;
   activeTab: InspectorTab;
   connectionStatus: string;
   connectionDetail: string;
@@ -163,13 +164,13 @@ function ContextPanel({
 }) {
   const usage = session?.usage as { used?: number; size?: number; total?: number } | undefined;
   const used = usage?.used ?? usage?.total ?? 0;
-  const size = usage?.size ?? 200_000;
-  const percent = size > 0 ? Math.min(100, Math.round((used / size) * 100)) : 0;
+  const size = typeof usage?.size === 'number' && usage.size > 0 ? usage.size : null;
+  const percent = size ? Math.min(100, Math.round((used / size) * 100)) : 0;
   return (
     <div className="inspector-panel">
       <div className="inspector-section-heading">
         <span>会话上下文</span>
-        <em>{percent}%</em>
+        <em>{size ? `${percent}%` : '—'}</em>
       </div>
       <div className="context-gauge">
         <div className="context-gauge__track">
@@ -177,7 +178,7 @@ function ContextPanel({
         </div>
         <div>
           <strong>{used ? used.toLocaleString() : '—'}</strong>
-          <small>/ {size.toLocaleString()} tokens</small>
+          <small>/ {size ? size.toLocaleString() : '—'} tokens</small>
         </div>
       </div>
       <div className="connection-card">
@@ -214,6 +215,7 @@ function InspectorEmpty({ label }: { label: string }) {
 export function Inspector({
   project,
   session,
+  appVersion,
   activeTab,
   connectionStatus,
   connectionDetail,
@@ -254,7 +256,7 @@ export function Inspector({
         <span>
           <ShieldCheck size={12} /> 本地优先
         </span>
-        <span>v0.1 预览</span>
+        <span>v{appVersion} 预览</span>
       </div>
     </aside>
   );

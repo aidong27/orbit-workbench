@@ -1,66 +1,96 @@
-# 星轨工作台
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 
-星轨工作台是一款独立开发的、非官方的 **Grok Build 中文图形客户端**。它采用类似现代编码代理桌面应用的三栏工作流，但使用 GrokNight 风格的深灰与洋红视觉，并通过官方支持的 Agent Client Protocol（ACP）连接用户本机的 `grok` 进程。
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="星轨工作台 Orbit Workbench" width="100%" />
+</p>
 
-> 当前版本：`0.1.0-alpha.1` 私有预览。仓库暂不公开，也没有发布许可证；待人工检查通过后再决定开源许可证和正式名称。
+<p align="center">
+  <strong>把 Grok Build CLI 带进一个清晰、可审阅、中文优先的桌面工作流。</strong>
+</p>
 
-## 当前已经可以做什么
+<p align="center">
+  <a href="https://github.com/aidong27/orbit-workbench/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/aidong27/orbit-workbench/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/aidong27/orbit-workbench/releases"><img alt="Release" src="https://img.shields.io/github/v/release/aidong27/orbit-workbench?include_prereleases&sort=semver&display_name=tag&style=flat-square" /></a>
+  <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/github/license/aidong27/orbit-workbench?style=flat-square" /></a>
+  <img alt="Windows x64 and macOS arm64" src="https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20arm64-7c6af2?style=flat-square" />
+  <img alt="Alpha" src="https://img.shields.io/badge/status-alpha-f0a45d?style=flat-square" />
+</p>
 
-- 选择本地项目并显示 Git 分支、未提交文件和差异统计。
-- 创建多个中文任务会话，并在本地保存界面状态。
-- 通过 `grok agent stdio` 建立真实 ACP 会话。
-- 流式显示 Grok 回复、过程摘要、执行计划与工具调用。
-- 在敏感工具调用前显示 ACP 权限确认弹窗。
-- 停止正在运行的任务；在原生模式可用时切换会话模式。
-- 当 Grok ACP 暂未暴露模式列表时，用 `/plan` 兼容计划模式。
-- 提供变更、计划、工具、上下文四个检查器标签页。
-- 支持 `⌘K` 命令面板、`⌘N` 新建任务和 `⌘,` 设置。
-- 首次打开自带明确标注的界面演示数据，便于检查布局，不会伪装成真实执行结果。
+<p align="center">
+  简体中文 · <a href="README.en.md">English</a> ·
+  <a href="https://github.com/aidong27/orbit-workbench/releases">下载</a> ·
+  <a href="https://github.com/aidong27/orbit-workbench/issues/new/choose">反馈问题</a>
+</p>
 
-## 安全边界
+> [!IMPORTANT]
+> **星轨工作台（Orbit Workbench）是独立、非官方的社区项目。** 本项目与 xAI 没有隶属、授权、赞助或背书关系。“Grok”和“Grok Build”仅用于准确说明兼容对象。应用不包含 Grok Build CLI，也不会绕过其认证或权限机制。
 
-星轨工作台不会读取或保存 `XAI_API_KEY`，也不会解析 Grok 的认证文件。认证、模型请求和工具执行均由用户已经安装的官方 Grok Build CLI 负责；客户端只在本机保存经过裁剪的界面历史，不保存 ACP 会话 ID、权限请求或工具原始输入/输出。
+## 为什么是星轨工作台
 
-```text
-React 界面
-   │ 受限 IPC
-Electron 主进程
-   │ ACP / JSON-RPC over stdio
-本机 grok agent stdio
-   │
-Grok Build 的认证、工具、会话与权限策略
-```
+星轨工作台为本机已经安装的 Grok Build CLI 提供中文桌面界面。它通过 Agent Client Protocol（ACP）连接 `grok agent stdio`，把项目、会话、流式回复、工具执行和权限确认组织在同一个三栏工作区中。
 
-客户端不捆绑上游 Grok Build 二进制；默认查找 `~/.grok/bin/grok`，也可以通过 `GROK_BINARY` 指定其他绝对路径。
+<p align="center">
+  <img src="docs/assets/workbench.png" alt="星轨工作台的中文三栏工作区" width="100%" />
+</p>
 
-## 本地运行
+| 能力 | 说明 |
+| --- | --- |
+| 真实 ACP 会话 | 直接连接本机 Grok Build 进程，呈现流式回复、过程摘要、计划与工具状态。 |
+| 中文优先 | 工作区、命令面板、设置、权限确认和错误信息均以中文组织。 |
+| 本地优先 | 界面不读取或保存 `XAI_API_KEY`；登录、模型请求和工具执行由用户自己的 CLI 负责。 |
+| 权限在前 | ACP 请求敏感操作时进入明确的确认队列，不在界面层默认放行。 |
+| Git 感知 | 展示当前分支、未提交文件和差异统计，不通过 shell 拼接 Git 参数。 |
+| 双平台 | 提供 Windows x64 安装版/便携版和 macOS arm64 DMG/ZIP 构建。 |
 
-前置条件：
+## 平台支持
 
-- macOS（首个检查版本）。
-- Node.js `24.18.0`。
-- pnpm `11.12.0`。
-- 已安装并登录 Grok Build：
+当前版本为 **`0.2.0-alpha.1`**。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
+
+| 平台 | 架构 | 构建产物 | 状态 |
+| --- | --- | --- | --- |
+| Windows | x64 | NSIS 安装版、Portable 便携版 | Alpha |
+| macOS | Apple Silicon / arm64 | DMG、ZIP | Alpha |
+| Linux | — | — | 尚未支持 |
+
+## 安装
+
+### 1. 准备 Grok Build CLI
+
+请先从 [xAI 的 Grok Build 项目](https://github.com/xai-org/grok-build)安装并完成登录，然后确认：
 
 ```bash
 grok --version
 grok login
 ```
 
-安装依赖并启动：
+Windows 版本需要可以直接执行的 `grok.exe`。应用会依次检查 `GROK_BINARY`、用户目录下的默认安装位置和系统 `PATH`；如果没有自动识别，请把 `GROK_BINARY` 设置为 `grok.exe` 的绝对路径。
+
+### 2. 下载桌面应用
+
+前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)，根据系统下载：
+
+- Windows x64：`Orbit-Workbench-0.2.0-alpha.1-Windows-x64-Setup.exe`
+- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.1-Windows-x64-Portable.exe`
+- macOS arm64：`Orbit-Workbench-0.2.0-alpha.1-macOS-arm64.dmg` 或 `.zip`
+
+> [!WARNING]
+> 当前 Alpha 安装包尚未进行 Windows 代码签名或 Apple Developer ID 公证，系统可能显示来源警告。请只从本仓库 Releases 下载，并在运行前核对发布页提供的校验值；无法确认来源时请改为从源码构建。
+
+更完整的安装、校验与故障排查见[安装指南](docs/INSTALLATION.md)。
+
+## 从源码运行
+
+需要 Node.js `24.18.0` 与 pnpm `11.12.0`：
 
 ```bash
-pnpm install
+git clone https://github.com/aidong27/orbit-workbench.git
+cd orbit-workbench
+corepack enable
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-首次安装如果 Electron 二进制没有下载，可执行：
-
-```bash
-pnpm rebuild electron
-```
-
-## 验证
+常用验证命令：
 
 ```bash
 pnpm typecheck
@@ -70,40 +100,62 @@ pnpm build
 pnpm smoke:acp
 ```
 
-完整检查：
+一次执行静态检查、测试和生产构建：
 
 ```bash
 pnpm check
 ```
 
-构建未签名的 macOS 检查包：
+本地打包：
 
 ```bash
-pnpm package:dir
+pnpm dist:win   # Windows x64
+pnpm dist:mac   # macOS arm64
 ```
 
-## 目录结构
+## 安全与隐私边界
 
 ```text
-src/main/        Electron 主进程、工作区检查与 Grok ACP 管理器
-src/preload/     最小权限的 IPC 桥接
+React 渲染进程（沙箱、无 Node.js）
+              │ 固定、受限 IPC
+              ▼
+Electron 主进程（路径验证、Git 检查、权限队列）
+              │ ACP / JSON-RPC over stdio
+              ▼
+用户本机的 Grok Build CLI（认证、模型、工具执行）
+```
+
+- 界面与本地状态不读取或保存 `XAI_API_KEY`；启动的 Grok 子进程会继承应用启动环境，供 CLI 按其自身认证规则使用。
+- 渲染进程启用沙箱和上下文隔离，不具备任意文件系统或 shell 权限。
+- 本地只保存界面偏好、工作区路径、会话标题和裁剪后的时间线。
+- ACP 会话 ID、权限请求和工具原始输入/输出不会跨进程持久化。
+
+请通过 [GitHub Private Vulnerability Reporting](https://github.com/aidong27/orbit-workbench/security/advisories/new) 私密报告安全问题，不要在公开 Issue 中提交密钥、真实项目内容或本地绝对路径。详见[安全政策](SECURITY.md)。
+
+## 项目结构
+
+```text
+src/main/        Electron 主进程、平台适配、Git 与 Grok ACP 管理
+src/preload/     最小权限 IPC 桥接
 src/renderer/    React 中文 GUI、状态归一化和组件测试
 src/shared/      主进程与渲染进程共享类型
 scripts/         本机 ACP 冒烟测试
-docs/            架构、验收和开源前检查资料
-build/           原创应用图标与打包资源
+docs/            架构、安装和发布检查资料
+build/           原创应用图标与平台打包资源
 ```
 
-## 版本管理
+进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
 
-- 遵循语义化版本，预览阶段使用 `0.1.0-alpha.N`。
-- `main` 保存稳定检查点；功能通过短期分支和 Draft PR 审阅。
-- 提交信息采用 Conventional Commits。
-- 第一个私有检查标签为 `v0.1.0-alpha.1`。
-- 用户确认后，才会添加开源许可证、创建公开 Release 或改变仓库可见性。
+## 参与项目
 
-详细说明见 [架构文档](docs/ARCHITECTURE.md) 和 [人工验收清单](docs/REVIEW_CHECKLIST.md)。
+欢迎提交可复现的 Bug、跨平台兼容性报告和聚焦的 Pull Request。开始前请阅读：
 
-## 非官方声明
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [支持说明](SUPPORT.md)
 
-本项目与 xAI 没有隶属、授权或背书关系。“Grok”和“Grok Build”仅用于说明兼容对象。应用名称、轨道图形和界面视觉均为本项目原创；没有复制或修改 xAI/Grok 官方 Logo。
+## 许可证与商标
+
+项目代码以 [Apache License 2.0](LICENSE) 发布。第三方组件保留其各自许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+“Orbit Workbench”和“星轨工作台”是本项目使用的独立名称与视觉标识。本项目不使用 xAI 或 Grok 官方 Logo；相关名称仅用于兼容性说明。完整声明见 [TRADEMARKS.md](TRADEMARKS.md)。

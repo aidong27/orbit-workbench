@@ -90,6 +90,7 @@ export interface PermissionClearedEvent {
 }
 
 export interface GrokDesktopApi {
+  reportRendererReady(): Promise<void>;
   getAppInfo(): Promise<AppInfo>;
   chooseDirectory(): Promise<ProjectSummary | null>;
   inspectProject(path: string): Promise<ProjectSummary>;

@@ -5,10 +5,6 @@
       <stop offset="0.42" stop-color="#18181b"/>
       <stop offset="1" stop-color="#0a0a0b"/>
     </radialGradient>
-    <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#f3f3f3"/>
-      <stop offset="1" stop-color="#8f8f98"/>
-    </linearGradient>
     <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
       <feGaussianBlur stdDeviation="26" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
@@ -16,8 +12,14 @@
   </defs>
   <rect x="36" y="36" width="952" height="952" rx="226" fill="url(#bg)"/>
   <rect x="37" y="37" width="950" height="950" rx="225" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="2"/>
-  <circle cx="512" cy="512" r="286" fill="none" stroke="url(#orbit)" stroke-width="52" stroke-linecap="round" stroke-dasharray="1310 490" transform="rotate(-28 512 512)"/>
-  <path d="M318 706 706 318" fill="none" stroke="#f0f0f2" stroke-width="58" stroke-linecap="round"/>
-  <circle cx="730" cy="294" r="67" fill="#bb9af7" filter="url(#glow)"/>
-  <circle cx="730" cy="294" r="25" fill="#f7efff"/>
+  <g fill="none" stroke-width="30">
+    <ellipse cx="512" cy="512" rx="324" ry="164" stroke="#e1e1e1" opacity=".88"/>
+    <ellipse cx="512" cy="512" rx="164" ry="324" stroke="#7dcfff" opacity=".72"/>
+    <circle cx="512" cy="512" r="270" stroke="#bb9af7" opacity=".5"/>
+  </g>
+  <circle cx="512" cy="512" r="78" fill="#bb9af7" opacity=".22" filter="url(#glow)"/>
+  <path d="M512 418 536 488 606 512 536 536 512 606 488 536 418 512 488 488Z" fill="#f7efff"/>
+  <circle cx="774" cy="382" r="36" fill="#7dcfff" filter="url(#glow)"/>
+  <circle cx="294" cy="630" r="28" fill="#bb9af7"/>
+  <circle cx="582" cy="790" r="22" fill="#ffdb8d"/>
 </svg>

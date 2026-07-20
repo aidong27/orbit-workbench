@@ -42,7 +42,7 @@ export function Welcome({ onOpenWorkspace }: { onOpenWorkspace: () => void }) {
           </div>
         </div>
         <small className="welcome__disclaimer">
-          非官方私人预览 · 调用本机 Grok Build，不存储 API 密钥
+          非官方开源 Alpha · 调用本机 Grok Build，界面不存储 API 密钥
         </small>
       </section>
     </div>

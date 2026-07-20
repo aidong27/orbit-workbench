@@ -9,6 +9,7 @@ import { Timeline } from './components/Timeline';
 import { TopBar } from './components/TopBar';
 import { Welcome } from './components/Welcome';
 import { desktopApi, isBrowserPreview } from './lib/desktop-api';
+import { runSessionTaskOnce } from './lib/in-flight';
 import { initialState } from './state/demo';
 import { makeProject, makeSession } from './state/model';
 import { loadState, reducer, saveState } from './state/reducer';
@@ -16,6 +17,7 @@ import { loadState, reducer, saveState } from './state/reducer';
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState, loadState);
   const stateRef = useRef(state);
+  const sessionsSending = useRef(new Set<string>());
   stateRef.current = state;
 
   const activeProject = useMemo(
@@ -27,7 +29,16 @@ export default function App() {
     [state.sessions, state.activeSessionId],
   );
 
-  useEffect(() => saveState(state), [state]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => saveState(state), 250);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+
+  useEffect(() => {
+    const flushState = (): void => saveState(stateRef.current);
+    window.addEventListener('beforeunload', flushState);
+    return () => window.removeEventListener('beforeunload', flushState);
+  }, []);
 
   useEffect(() => {
     const offUpdate = desktopApi.onSessionUpdate((event) => {
@@ -57,26 +68,42 @@ export default function App() {
   useEffect(() => {
     void desktopApi
       .getAppInfo()
-      .then((info) => dispatch({ type: 'APP_VERSION', version: info.version }));
-    void desktopApi.checkGrok().then(async (status) => {
-      dispatch({
-        type: 'CONNECTION',
-        status: status.status,
-        detail: status.detail ?? status.version ?? undefined,
+      .then(async (info) => {
+        dispatch({
+          type: 'APP_INFO',
+          version: info.version,
+          platform: info.platform,
+          arch: info.arch,
+        });
+        await desktopApi.reportRendererReady();
+      })
+      .catch((error) => {
+        dispatch({
+          type: 'CONNECTION',
+          status: 'error',
+          detail: error instanceof Error ? error.message : '无法读取应用信息',
+        });
       });
-      if (status.status === 'ready') {
-        try {
+    void desktopApi
+      .checkGrok()
+      .then(async (status) => {
+        dispatch({
+          type: 'CONNECTION',
+          status: status.status,
+          detail: status.detail ?? status.version ?? undefined,
+        });
+        if (status.status === 'ready') {
           const connected = await desktopApi.connectGrok();
           dispatch({ type: 'CONNECTION', status: connected.status, detail: connected.detail });
-        } catch (error) {
-          dispatch({
-            type: 'CONNECTION',
-            status: 'error',
-            detail: error instanceof Error ? error.message : '无法连接 Grok Build',
-          });
         }
-      }
-    });
+      })
+      .catch((error) => {
+        dispatch({
+          type: 'CONNECTION',
+          status: 'error',
+          detail: error instanceof Error ? error.message : '无法连接 Grok Build',
+        });
+      });
   }, []);
 
   const openWorkspace = useCallback(async () => {
@@ -108,55 +135,61 @@ export default function App() {
     const project = current.projects.find((item) => item.id === current.activeProjectId);
     if (!localSession || !project || project.demo || !project.path) return;
 
-    let acpSessionId = localSession.acpSessionId;
-    let availableModes = localSession.availableModes;
-    let desiredModeId = localSession.currentModeId;
-    if (!acpSessionId) {
-      dispatch({ type: 'SESSION_STATUS', sessionId: localSession.id, status: 'connecting' });
-      try {
-        const created = await desktopApi.createSession(project.path);
-        acpSessionId = created.sessionId;
-        availableModes = created.availableModes;
-        desiredModeId = desiredModeId ?? created.currentModeId;
-        dispatch({
-          type: 'SESSION_CONNECTED',
-          localSessionId: localSession.id,
-          acpSessionId: created.sessionId,
-          currentModeId: desiredModeId,
-          availableModes: created.availableModes,
-        });
-        if (
-          desiredModeId &&
-          desiredModeId !== created.currentModeId &&
-          created.availableModes.some((mode) => mode.id === desiredModeId)
-        ) {
-          await desktopApi.setSessionMode(created.sessionId, desiredModeId).catch(() => undefined);
+    await runSessionTaskOnce(sessionsSending.current, localSession.id, async () => {
+      let acpSessionId = localSession.acpSessionId;
+      let availableModes = localSession.availableModes;
+      let desiredModeId = localSession.currentModeId;
+      if (!acpSessionId) {
+        dispatch({ type: 'SESSION_STATUS', sessionId: localSession.id, status: 'connecting' });
+        try {
+          const created = await desktopApi.createSession(project.path);
+          acpSessionId = created.sessionId;
+          availableModes = created.availableModes;
+          desiredModeId = desiredModeId ?? created.currentModeId;
+          dispatch({
+            type: 'SESSION_CONNECTED',
+            localSessionId: localSession.id,
+            acpSessionId: created.sessionId,
+            currentModeId: desiredModeId,
+            availableModes: created.availableModes,
+          });
+          if (
+            desiredModeId &&
+            desiredModeId !== created.currentModeId &&
+            created.availableModes.some((mode) => mode.id === desiredModeId)
+          ) {
+            await desktopApi
+              .setSessionMode(created.sessionId, desiredModeId)
+              .catch(() => undefined);
+          }
+        } catch (error) {
+          dispatch({
+            type: 'ACP_UPDATE',
+            sessionId: localSession.id,
+            update: {
+              sessionUpdate: 'client_turn_error',
+              detail: error instanceof Error ? error.message : '无法创建 Grok 会话',
+            },
+          });
+          return;
         }
+      }
+
+      const usesNativeModes = availableModes.length > 0;
+      const enginePrompt = !usesNativeModes && desiredModeId === 'plan' ? `/plan ${text}` : text;
+      dispatch({ type: 'USER_MESSAGE', sessionId: localSession.id, text });
+      try {
+        await desktopApi.sendPrompt(acpSessionId, enginePrompt);
       } catch (error) {
         dispatch({
           type: 'ACP_UPDATE',
           sessionId: localSession.id,
           update: {
             sessionUpdate: 'client_turn_error',
-            detail: error instanceof Error ? error.message : '无法创建 Grok 会话',
+            detail: error instanceof Error ? error.message : 'Grok 任务执行失败',
           },
         });
-        return;
       }
-    }
-
-    const usesNativeModes = availableModes.length > 0;
-    const enginePrompt = !usesNativeModes && desiredModeId === 'plan' ? `/plan ${text}` : text;
-    dispatch({ type: 'USER_MESSAGE', sessionId: localSession.id, text });
-    void desktopApi.sendPrompt(acpSessionId, enginePrompt).catch((error) => {
-      dispatch({
-        type: 'ACP_UPDATE',
-        sessionId: localSession.id,
-        update: {
-          sessionUpdate: 'client_turn_error',
-          detail: error instanceof Error ? error.message : 'Grok 任务执行失败',
-        },
-      });
     });
   }, []);
 
@@ -164,7 +197,18 @@ export default function App() {
     const session = stateRef.current.sessions.find(
       (item) => item.id === stateRef.current.activeSessionId,
     );
-    if (session?.acpSessionId) void desktopApi.cancelSession(session.acpSessionId);
+    if (session?.acpSessionId) {
+      void desktopApi.cancelSession(session.acpSessionId).catch((error) => {
+        dispatch({
+          type: 'ACP_UPDATE',
+          sessionId: session.id,
+          update: {
+            sessionUpdate: 'client_turn_error',
+            detail: error instanceof Error ? error.message : '无法停止 Grok 任务',
+          },
+        });
+      });
+    }
   }, []);
 
   const changeMode = useCallback((modeId: string) => {
@@ -174,7 +218,26 @@ export default function App() {
     if (!session) return;
     const nativeMode = session.availableModes.some((mode) => mode.id === modeId);
     if (session.acpSessionId && nativeMode) {
-      void desktopApi.setSessionMode(session.acpSessionId, modeId);
+      void desktopApi
+        .setSessionMode(session.acpSessionId, modeId)
+        .then(() => {
+          dispatch({
+            type: 'ACP_UPDATE',
+            sessionId: session.id,
+            update: { sessionUpdate: 'current_mode_update', currentModeId: modeId },
+          });
+        })
+        .catch((error) => {
+          dispatch({
+            type: 'ACP_UPDATE',
+            sessionId: session.id,
+            update: {
+              sessionUpdate: 'client_turn_error',
+              detail: error instanceof Error ? error.message : '无法切换 Grok 会话模式',
+            },
+          });
+        });
+      return;
     }
     dispatch({
       type: 'ACP_UPDATE',
@@ -191,16 +254,20 @@ export default function App() {
     try {
       const summary = await desktopApi.inspectProject(project.path);
       dispatch({ type: 'PROJECT_UPDATED', project: { ...project, ...summary } });
-    } catch {
-      // Keep the last known Git state if refresh fails.
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '无法刷新 Git 状态');
     }
   }, []);
 
   const resolvePermission = useCallback(async (optionId?: string, cancelled?: boolean) => {
     const request = stateRef.current.pendingPermissions[0];
     if (!request) return;
-    await desktopApi.resolvePermission({ requestId: request.requestId, optionId, cancelled });
-    dispatch({ type: 'PERMISSION_CLEARED', requestId: request.requestId });
+    try {
+      await desktopApi.resolvePermission({ requestId: request.requestId, optionId, cancelled });
+      dispatch({ type: 'PERMISSION_CLEARED', requestId: request.requestId });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '无法提交权限选择');
+    }
   }, []);
 
   const toggleSidebar = useCallback(() => dispatch({ type: 'SIDEBAR_TOGGLED' }), []);
@@ -233,7 +300,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell ${state.sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${state.inspectorOpen ? '' : 'is-inspector-closed'}`}
+      className={`app-shell platform-${state.appPlatform} ${state.sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${state.inspectorOpen ? '' : 'is-inspector-closed'}`}
     >
       <Sidebar
         state={state}
@@ -274,6 +341,7 @@ export default function App() {
             <Inspector
               project={activeProject}
               session={activeSession}
+              appVersion={state.appVersion}
               activeTab={state.inspectorTab}
               connectionStatus={state.connectionStatus}
               connectionDetail={state.connectionDetail}
@@ -286,6 +354,7 @@ export default function App() {
 
       <CommandPalette
         open={state.commandPaletteOpen}
+        platform={state.appPlatform}
         onClose={() => dispatch({ type: 'COMMAND_PALETTE', open: false })}
         onNewSession={newSession}
         onOpenWorkspace={openWorkspace}
@@ -296,12 +365,15 @@ export default function App() {
       <SettingsDialog
         open={state.settingsOpen}
         version={state.appVersion}
+        platform={state.appPlatform}
+        arch={state.appArch}
         connectionStatus={state.connectionStatus}
         connectionDetail={`${state.connectionDetail}${isBrowserPreview ? ' · 当前为浏览器视觉预览' : ''}`}
         onClose={() => dispatch({ type: 'SETTINGS', open: false })}
       />
       {state.pendingPermissions[0] && (
         <PermissionDialog
+          key={state.pendingPermissions[0].requestId}
           request={state.pendingPermissions[0]}
           remainingCount={state.pendingPermissions.length - 1}
           onResolve={resolvePermission}

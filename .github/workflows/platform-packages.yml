@@ -1,0 +1,130 @@
+name: Platform packages
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Package macOS arm64
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.12.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS packages
+        run: pnpm dist:mac
+
+      - name: Verify packaged application renderer and preload
+        run: 'release/mac-arm64/星轨工作台.app/Contents/MacOS/星轨工作台 --smoke-test'
+
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: orbit-workbench-macos-arm64
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  windows:
+    name: Package and launch Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.12.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows packages
+        run: pnpm dist:win
+
+      - name: Verify unpacked app and NSIS installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Assert-SmokeTest([string]$Executable) {
+            $process = Start-Process -FilePath $Executable -ArgumentList "--smoke-test", "--disable-gpu" -PassThru
+            try {
+              $process | Wait-Process -Timeout 30 -ErrorAction Stop
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                throw "Packaged Windows renderer/preload smoke test failed (code $($process.ExitCode)): $Executable"
+              }
+            } finally {
+              if (-not $process.HasExited) {
+                & taskkill.exe /PID $process.Id /T /F | Out-Null
+              }
+            }
+          }
+
+          Assert-SmokeTest (Resolve-Path "release/win-unpacked/Orbit Workbench.exe")
+
+          $installer = Get-Item "release/Orbit-Workbench-*-Windows-x64-Setup.exe"
+          $installDirectory = Join-Path $env:RUNNER_TEMP "OrbitWorkbench"
+          $installation = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installDirectory" -PassThru -Wait
+          if ($installation.ExitCode -ne 0) {
+            throw "Silent NSIS installation failed (code $($installation.ExitCode))."
+          }
+          $installedApp = Join-Path $installDirectory "Orbit Workbench.exe"
+          if (-not (Test-Path $installedApp)) {
+            throw "NSIS installation did not create the expected application executable."
+          }
+          if (-not (Test-Path (Join-Path $installDirectory "resources/LICENSE.txt"))) {
+            throw "NSIS installation is missing LICENSE.txt."
+          }
+          if (-not (Test-Path (Join-Path $installDirectory "resources/THIRD_PARTY_NOTICES.md"))) {
+            throw "NSIS installation is missing THIRD_PARTY_NOTICES.md."
+          }
+          Assert-SmokeTest $installedApp
+
+          $portable = Get-Item "release/Orbit-Workbench-*-Windows-x64-Portable.exe"
+          if ($portable.Length -le 0) {
+            throw "Portable artifact is empty."
+          }
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: orbit-workbench-windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

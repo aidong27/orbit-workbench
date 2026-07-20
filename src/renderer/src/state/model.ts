@@ -84,6 +84,10 @@ export interface WorkSession {
 
 export type InspectorTab = 'changes' | 'plan' | 'tools' | 'context';
 
+export function sessionBlocksInput(status: SessionStatus): boolean {
+  return status === 'working' || status === 'connecting' || status === 'awaiting_permission';
+}
+
 export interface AppState {
   projects: WorkspaceProject[];
   sessions: WorkSession[];
@@ -98,6 +102,8 @@ export interface AppState {
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
   appVersion: string;
+  appPlatform: string;
+  appArch: string;
 }
 
 export type AppAction =
@@ -125,7 +131,7 @@ export type AppAction =
   | { type: 'INSPECTOR_TAB'; tab: InspectorTab }
   | { type: 'COMMAND_PALETTE'; open: boolean }
   | { type: 'SETTINGS'; open: boolean }
-  | { type: 'APP_VERSION'; version: string };
+  | { type: 'APP_INFO'; version: string; platform: string; arch: string };
 
 export function makeProject(
   summary: ProjectSummary,

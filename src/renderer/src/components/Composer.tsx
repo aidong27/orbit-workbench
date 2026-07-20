@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { modeLabel } from '../lib/format';
-import type { WorkSession, WorkspaceProject } from '../state/model';
+import { sessionBlocksInput, type WorkSession, type WorkspaceProject } from '../state/model';
 
 interface ComposerProps {
   project: WorkspaceProject | null;
@@ -33,7 +33,8 @@ export function Composer({
   const [value, setValue] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isWorking = session?.status === 'working' || session?.status === 'connecting';
+  const isWorking = session ? sessionBlocksInput(session.status) : false;
+  const canStop = Boolean(session?.acpSessionId);
   const canSend = Boolean(project && !project.demo && session && value.trim() && !isWorking);
   const activeSessionId = session?.id;
 
@@ -64,7 +65,7 @@ export function Composer({
           </span>
           <span>
             <strong>打开本地工作区，开始真实任务</strong>
-            <small>会通过 ACP 连接本机 Grok Build；文件写入前仍由你确认</small>
+            <small>会通过 ACP 连接本机 Grok Build；权限请求会在界面中确认</small>
           </span>
           <CornerDownLeft size={15} />
         </button>
@@ -89,10 +90,10 @@ export function Composer({
             <button type="button" title="添加附件（即将支持）" disabled>
               <Paperclip size={15} />
             </button>
-            <button type="button" title="引用工作区文件">
+            <button type="button" title="文件引用即将支持" disabled>
               <AtSign size={15} />
             </button>
-            <button type="button" title="打开斜杠命令">
+            <button type="button" title="斜杠命令即将支持" disabled>
               <Command size={14} />
             </button>
             <span className="composer__divider" />
@@ -135,7 +136,13 @@ export function Composer({
           </div>
 
           {isWorking ? (
-            <button type="button" className="composer__stop" onClick={onStop} title="停止当前任务">
+            <button
+              type="button"
+              className="composer__stop"
+              onClick={onStop}
+              disabled={!canStop}
+              title={canStop ? '停止当前任务' : '正在建立 Grok 会话'}
+            >
               <CircleStop size={16} />
             </button>
           ) : (

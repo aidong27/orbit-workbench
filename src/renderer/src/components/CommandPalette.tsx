@@ -11,6 +11,7 @@ export interface CommandItem {
 
 interface CommandPaletteProps {
   open: boolean;
+  platform: string;
   onClose: () => void;
   onNewSession: () => void;
   onOpenWorkspace: () => void;
@@ -21,6 +22,7 @@ interface CommandPaletteProps {
 
 export function CommandPalette({
   open,
+  platform,
   onClose,
   onNewSession,
   onOpenWorkspace,
@@ -30,9 +32,16 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const shortcutPrefix = platform === 'darwin' ? '⌘' : 'Ctrl+';
   const commands = useMemo<CommandItem[]>(
     () => [
-      { id: 'new', label: '新建任务', hint: '⌘N', icon: Plus, run: onNewSession },
+      {
+        id: 'new',
+        label: '新建任务',
+        hint: `${shortcutPrefix}N`,
+        icon: Plus,
+        run: onNewSession,
+      },
       {
         id: 'workspace',
         label: '打开本地工作区',
@@ -54,9 +63,22 @@ export function CommandPalette({
         icon: PanelRight,
         run: onToggleInspector,
       },
-      { id: 'settings', label: '打开设置与关于', hint: '⌘,', icon: Settings, run: onOpenSettings },
+      {
+        id: 'settings',
+        label: '打开设置与关于',
+        hint: `${shortcutPrefix},`,
+        icon: Settings,
+        run: onOpenSettings,
+      },
     ],
-    [onNewSession, onOpenWorkspace, onToggleSidebar, onToggleInspector, onOpenSettings],
+    [
+      onNewSession,
+      onOpenWorkspace,
+      onToggleSidebar,
+      onToggleInspector,
+      onOpenSettings,
+      shortcutPrefix,
+    ],
   );
   const filtered = commands.filter((command) => command.label.includes(query.trim()));
 

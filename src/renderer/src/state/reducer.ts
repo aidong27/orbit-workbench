@@ -3,6 +3,8 @@ import type { AppAction, AppState, PlanEntry, TimelineItem, ToolItem, WorkSessio
 const PERSISTED_STATE_KEY = 'orbit-workbench-state-v1';
 const MAX_PERSISTED_SESSIONS = 40;
 const MAX_PERSISTED_TIMELINE_ITEMS = 160;
+const MAX_IN_MEMORY_TIMELINE_ITEMS = 600;
+const MAX_TOOL_PAYLOAD_CHARACTERS = 50_000;
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -15,10 +17,31 @@ function updateSession(
 ): AppState {
   return {
     ...state,
-    sessions: state.sessions.map((session) =>
-      session.id === sessionId ? updater(session) : session,
-    ),
+    sessions: state.sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+      const updated = updater(session);
+      return updated.timeline.length > MAX_IN_MEMORY_TIMELINE_ITEMS
+        ? { ...updated, timeline: updated.timeline.slice(-MAX_IN_MEMORY_TIMELINE_ITEMS) }
+        : updated;
+    }),
   };
+}
+
+function boundedPayload(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_TOOL_PAYLOAD_CHARACTERS
+      ? `${value.slice(0, MAX_TOOL_PAYLOAD_CHARACTERS)}\n…内容已截断`
+      : value;
+  }
+  if (value === undefined || value === null) return value;
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized.length > MAX_TOOL_PAYLOAD_CHARACTERS
+      ? `${serialized.slice(0, MAX_TOOL_PAYLOAD_CHARACTERS)}…内容已截断`
+      : value;
+  } catch {
+    return '无法显示此工具载荷。';
+  }
 }
 
 function textFromContent(content: unknown): string {
@@ -77,10 +100,10 @@ function upsertTool(session: WorkSession, update: Record<string, unknown>): Work
     title: String(update.title ?? current?.title ?? '执行工具'),
     kind: String(update.kind ?? current?.kind ?? 'other'),
     status: String(update.status ?? current?.status ?? 'in_progress'),
-    content: update.content ?? current?.content,
-    rawInput: update.rawInput ?? current?.rawInput,
-    rawOutput: update.rawOutput ?? current?.rawOutput,
-    locations: update.locations ?? current?.locations,
+    content: boundedPayload(update.content ?? current?.content),
+    rawInput: boundedPayload(update.rawInput ?? current?.rawInput),
+    rawOutput: boundedPayload(update.rawOutput ?? current?.rawOutput),
+    locations: boundedPayload(update.locations ?? current?.locations),
     createdAt: current?.createdAt ?? Date.now(),
   };
   const timeline = [...session.timeline];
@@ -353,8 +376,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, commandPaletteOpen: action.open };
     case 'SETTINGS':
       return { ...state, settingsOpen: action.open };
-    case 'APP_VERSION':
-      return { ...state, appVersion: action.version };
+    case 'APP_INFO':
+      return {
+        ...state,
+        appVersion: action.version,
+        appPlatform: action.platform,
+        appArch: action.arch,
+      };
     default:
       return state;
   }
@@ -415,6 +443,7 @@ export function saveState(state: AppState): void {
               content: undefined,
               rawInput: undefined,
               rawOutput: undefined,
+              locations: undefined,
             }
           : item,
       ),
@@ -434,7 +463,11 @@ export function saveState(state: AppState): void {
     inspectorOpen: state.inspectorOpen,
     inspectorTab: state.inspectorTab,
   };
-  localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(persisted));
+  try {
+    localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(persisted));
+  } catch {
+    // A full or disabled localStorage must never interrupt an active ACP stream.
+  }
 }
 
 export const reducerTestHelpers = {

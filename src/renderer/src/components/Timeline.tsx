@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { isAllowedExternalUrl } from '../../../shared/url';
 import { compactJson, statusLabel, toolKindLabel } from '../lib/format';
 import type {
   MessageItem,
@@ -57,7 +58,21 @@ function MessageCard({ item }: { item: MessageItem }) {
         <OrbitMark size={24} active={item.streaming} />
       </div>
       <div className="assistant-body markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) =>
+              href && isAllowedExternalUrl(href) ? (
+                <a href={href} target="_blank" rel="noreferrer">
+                  {children}
+                </a>
+              ) : (
+                <span>{children}</span>
+              ),
+          }}
+        >
+          {item.content}
+        </ReactMarkdown>
         {item.streaming && <span className="stream-caret" />}
       </div>
     </article>

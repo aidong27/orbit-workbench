@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">星轨工作台 Orbit Workbench</title>
+  <desc id="desc">A dark cosmic banner for the independent, local-first desktop workspace</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080a10"/>
+      <stop offset="0.52" stop-color="#10101a"/>
+      <stop offset="1" stop-color="#211632"/>
+    </linearGradient>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1190 130) rotate(132) scale(650 520)">
+      <stop stop-color="#9f7aea" stop-opacity=".30"/>
+      <stop offset="1" stop-color="#9f7aea" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(230 590) rotate(-30) scale(480 360)">
+      <stop stop-color="#67d8f3" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#67d8f3" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="orbitA" x1="95" y1="150" x2="420" y2="505">
+      <stop stop-color="#71d8ef"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="orbitB" x1="140" y1="455" x2="435" y2="170">
+      <stop stop-color="#f1f4ff" stop-opacity=".28"/>
+      <stop offset=".5" stop-color="#f1f4ff"/>
+      <stop offset="1" stop-color="#bf9cff" stop-opacity=".42"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".035"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#d8d6ef" stroke-opacity=".045"/>
+    </pattern>
+    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="panelShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity=".38"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="720" rx="32" fill="url(#background)"/>
+  <rect width="1600" height="720" rx="32" fill="url(#violetGlow)"/>
+  <rect width="1600" height="720" rx="32" fill="url(#cyanGlow)"/>
+  <rect x="1" y="1" width="1598" height="718" rx="31" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="2"/>
+  <rect width="1600" height="720" rx="32" fill="url(#grid)"/>
+
+  <!-- Independent multi-orbit mark: deliberately avoids official vendor logos. -->
+  <g transform="translate(65 63)">
+    <circle cx="276" cy="295" r="176" fill="#0d1019" fill-opacity=".76" stroke="#ffffff" stroke-opacity=".08"/>
+    <ellipse cx="276" cy="295" rx="201" ry="96" transform="rotate(-18 276 295)" fill="none" stroke="url(#orbitA)" stroke-width="8"/>
+    <ellipse cx="276" cy="295" rx="196" ry="89" transform="rotate(52 276 295)" fill="none" stroke="url(#orbitB)" stroke-width="5"/>
+    <ellipse cx="276" cy="295" rx="168" ry="62" transform="rotate(142 276 295)" fill="none" stroke="#c8b5ff" stroke-opacity=".38" stroke-width="3" stroke-dasharray="8 14"/>
+    <circle cx="126" cy="185" r="12" fill="#71d8ef" filter="url(#softGlow)"/>
+    <circle cx="411" cy="197" r="15" fill="#b796ff" filter="url(#softGlow)"/>
+    <circle cx="325" cy="440" r="9" fill="#f1f4ff" filter="url(#softGlow)"/>
+    <circle cx="276" cy="295" r="30" fill="#9f7aea" fill-opacity=".22"/>
+    <path d="m276 263 8 22 22 10-22 9-8 23-9-23-22-9 22-10Z" fill="#f6f3ff"/>
+  </g>
+
+  <g font-family="Inter, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    <text x="548" y="196" fill="#c4b5fd" font-size="22" font-weight="650" letter-spacing="5">LOCAL-FIRST · ACP DESKTOP</text>
+    <text x="548" y="292" fill="#f6f5fb" font-size="78" font-weight="760" letter-spacing="2">星轨工作台</text>
+    <text x="552" y="352" fill="#bab8c7" font-size="35" font-weight="520" letter-spacing="1">Orbit Workbench</text>
+    <text x="552" y="413" fill="#d3d1dc" font-size="25">清晰、可审阅、中文优先的编码代理桌面工作流</text>
+    <text x="552" y="451" fill="#878493" font-size="19">An independent desktop client compatible with Grok Build CLI</text>
+
+    <g transform="translate(548 500)">
+      <rect width="126" height="44" rx="22" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="24" cy="22" r="5" fill="#a78bfa"/>
+      <text x="40" y="29" fill="#dedbe8" font-size="17">中文界面</text>
+      <rect x="140" width="104" height="44" rx="22" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="164" cy="22" r="5" fill="#71d8ef"/>
+      <text x="180" y="29" fill="#dedbe8" font-size="17">ACP</text>
+      <rect x="258" width="142" height="44" rx="22" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="282" cy="22" r="5" fill="#88d498"/>
+      <text x="298" y="29" fill="#dedbe8" font-size="17">Windows</text>
+      <rect x="414" width="132" height="44" rx="22" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="438" cy="22" r="5" fill="#f0b36c"/>
+      <text x="454" y="29" fill="#dedbe8" font-size="17">macOS</text>
+    </g>
+  </g>
+
+  <g transform="translate(1250 507)" filter="url(#panelShadow)">
+    <rect width="270" height="122" rx="18" fill="#0c0e16" fill-opacity=".88" stroke="#ffffff" stroke-opacity=".10"/>
+    <circle cx="24" cy="24" r="5" fill="#f7768e"/>
+    <circle cx="41" cy="24" r="5" fill="#e0af68"/>
+    <circle cx="58" cy="24" r="5" fill="#9ece6a"/>
+    <path d="M25 56h154M25 76h214M25 96h122" stroke="#a9a6b4" stroke-opacity=".42" stroke-width="7" stroke-linecap="round"/>
+    <path d="M204 54h35" stroke="#a78bfa" stroke-width="7" stroke-linecap="round"/>
+  </g>
+
+  <text x="80" y="670" fill="#777482" font-family="Inter, Segoe UI, sans-serif" font-size="15" letter-spacing="1.2">INDEPENDENT COMMUNITY PROJECT · NOT AFFILIATED WITH XAI</text>
+</svg>

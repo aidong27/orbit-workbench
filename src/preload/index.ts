@@ -16,6 +16,7 @@ function subscribe<T>(channel: string, listener: (event: T) => void): () => void
 }
 
 const api: GrokDesktopApi = {
+  reportRendererReady: () => ipcRenderer.invoke('app:renderer-ready'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   chooseDirectory: () => ipcRenderer.invoke('workspace:choose'),
   inspectProject: (path) => ipcRenderer.invoke('workspace:inspect', path),
