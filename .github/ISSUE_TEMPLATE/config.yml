@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞 / Security vulnerability
+    url: https://github.com/aidong27/orbit-workbench/security/advisories/new
+    about: 请使用私密漏洞报告，不要公开敏感细节。
+  - name: 使用与支持 / Support
+    url: https://github.com/aidong27/orbit-workbench/blob/main/SUPPORT.md
+    about: 先查看支持范围、日志脱敏与常见排查方式。

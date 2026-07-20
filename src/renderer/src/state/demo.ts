@@ -1,0 +1,123 @@
+import type { AppState, WorkSession, WorkspaceProject } from './model';
+
+const now = Date.now();
+
+export const demoProject: WorkspaceProject = {
+  id: 'demo-project',
+  path: '',
+  name: '界面预览',
+  branch: 'main',
+  isGitRepository: true,
+  changedFiles: 3,
+  statusLines: ['M  src/app.tsx', 'A  src/components/StatusRail.tsx', 'M  src/styles.css'],
+  diffStat: '3 files changed, 184 insertions(+), 27 deletions(-)',
+  addedAt: now - 86_400_000,
+  demo: true,
+};
+
+export const demoSession: WorkSession = {
+  id: 'demo-session',
+  projectId: demoProject.id,
+  title: '重构项目状态面板',
+  acpSessionId: null,
+  status: 'completed',
+  currentModeId: 'plan',
+  availableModes: [
+    { id: 'normal', name: '普通' },
+    { id: 'plan', name: '计划' },
+    { id: 'always-approve', name: '始终批准' },
+  ],
+  createdAt: now - 3_600_000,
+  updatedAt: now - 780_000,
+  demo: true,
+  usage: { used: 27_480, size: 200_000 },
+  timeline: [
+    {
+      id: 'demo-user',
+      type: 'message',
+      role: 'user',
+      content: '把项目状态面板改成更紧凑的布局，保留移动端体验，并补上测试。',
+      createdAt: now - 3_500_000,
+    },
+    {
+      id: 'demo-thought',
+      type: 'thought',
+      content: '已检查现有布局、断点与状态数据来源，准备分三步完成。',
+      createdAt: now - 3_480_000,
+    },
+    {
+      id: 'demo-plan',
+      type: 'plan',
+      createdAt: now - 3_450_000,
+      entries: [
+        { content: '梳理状态面板组件和响应式断点', priority: 'high', status: 'completed' },
+        { content: '实现紧凑布局并保持信息层级', priority: 'high', status: 'completed' },
+        { content: '补充交互测试并运行构建检查', priority: 'medium', status: 'completed' },
+      ],
+    },
+    {
+      id: 'demo-tool-1',
+      type: 'tool',
+      toolCallId: 'demo-read',
+      title: '读取状态面板相关文件',
+      kind: 'read',
+      status: 'completed',
+      rawInput: { path: 'src/components/StatusPanel.tsx' },
+      createdAt: now - 3_200_000,
+    },
+    {
+      id: 'demo-tool-2',
+      type: 'tool',
+      toolCallId: 'demo-edit',
+      title: '更新 3 个界面文件',
+      kind: 'edit',
+      status: 'completed',
+      rawOutput: '3 files changed, 184 insertions(+), 27 deletions(-)',
+      createdAt: now - 2_100_000,
+    },
+    {
+      id: 'demo-tool-3',
+      type: 'tool',
+      toolCallId: 'demo-test',
+      title: '运行组件测试与生产构建',
+      kind: 'execute',
+      status: 'completed',
+      rawInput: { command: 'pnpm test && pnpm build' },
+      rawOutput: '14 tests passed · build completed in 2.8s',
+      createdAt: now - 1_200_000,
+    },
+    {
+      id: 'demo-answer',
+      type: 'message',
+      role: 'assistant',
+      content:
+        '状态面板已经完成重构：桌面端信息密度提高，窄屏会自动收起为抽屉。组件测试和生产构建均已通过。\n\n本次改动集中在布局与展示层，没有改变原有数据协议。',
+      createdAt: now - 800_000,
+    },
+    {
+      id: 'demo-done',
+      type: 'status',
+      label: '任务完成 · 用时 2 分 41 秒',
+      tone: 'success',
+      createdAt: now - 780_000,
+    },
+  ],
+};
+
+export const initialState: AppState = {
+  projects: [demoProject],
+  sessions: [demoSession],
+  activeProjectId: demoProject.id,
+  activeSessionId: demoSession.id,
+  connectionStatus: 'checking',
+  connectionDetail: '正在检查本机 Grok Build…',
+  pendingPermissions: [],
+  sidebarCollapsed: false,
+  inspectorOpen: true,
+  inspectorTab: 'changes',
+  commandPaletteOpen: false,
+  settingsOpen: false,
+  appVersion: '0.2.0-alpha.1',
+  appPlatform: 'darwin',
+  appArch: 'arm64',
+};

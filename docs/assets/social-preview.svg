@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">星轨工作台 Orbit Workbench</title>
+  <desc id="desc">Social preview for the independent local-first desktop workspace</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#080a10"/>
+      <stop offset=".58" stop-color="#11101c"/>
+      <stop offset="1" stop-color="#291a3e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(988 82) rotate(132) scale(560 420)">
+      <stop stop-color="#9f7aea" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#9f7aea" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="orbit" x1="80" y1="120" x2="395" y2="445">
+      <stop stop-color="#71d8ef"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity=".045"/>
+    </pattern>
+    <filter id="soft" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  <rect x="1" y="1" width="1278" height="638" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="2"/>
+
+  <g transform="translate(58 55)">
+    <circle cx="230" cy="250" r="158" fill="#0d1019" fill-opacity=".76" stroke="#ffffff" stroke-opacity=".08"/>
+    <ellipse cx="230" cy="250" rx="190" ry="86" transform="rotate(-18 230 250)" fill="none" stroke="url(#orbit)" stroke-width="8"/>
+    <ellipse cx="230" cy="250" rx="184" ry="82" transform="rotate(52 230 250)" fill="none" stroke="#f1f4ff" stroke-opacity=".74" stroke-width="5"/>
+    <ellipse cx="230" cy="250" rx="155" ry="56" transform="rotate(142 230 250)" fill="none" stroke="#c8b5ff" stroke-opacity=".34" stroke-width="3" stroke-dasharray="8 14"/>
+    <circle cx="88" cy="150" r="11" fill="#71d8ef" filter="url(#soft)"/>
+    <circle cx="359" cy="158" r="14" fill="#b796ff" filter="url(#soft)"/>
+    <circle cx="275" cy="384" r="8" fill="#f1f4ff" filter="url(#soft)"/>
+    <path d="m230 221 8 20 20 9-20 8-8 21-8-21-21-8 21-9Z" fill="#f6f3ff"/>
+  </g>
+
+  <g font-family="Inter, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    <text x="505" y="186" fill="#c4b5fd" font-size="20" font-weight="650" letter-spacing="4">LOCAL-FIRST · ACP DESKTOP</text>
+    <text x="505" y="282" fill="#f7f6fb" font-size="70" font-weight="760">星轨工作台</text>
+    <text x="509" y="340" fill="#c6c3cf" font-size="33" font-weight="520">Orbit Workbench</text>
+    <text x="509" y="405" fill="#dedce5" font-size="23">中文优先的编码代理桌面工作流</text>
+    <text x="509" y="442" fill="#8f8c99" font-size="18">Windows x64 · macOS arm64 · Agent Client Protocol</text>
+
+    <g transform="translate(505 485)">
+      <rect width="148" height="42" rx="21" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="23" cy="21" r="5" fill="#a78bfa"/>
+      <text x="39" y="28" fill="#ddd9e7" font-size="16">Independent</text>
+      <rect x="162" width="124" height="42" rx="21" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="185" cy="21" r="5" fill="#71d8ef"/>
+      <text x="201" y="28" fill="#ddd9e7" font-size="16">Open source</text>
+      <rect x="300" width="126" height="42" rx="21" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".10"/>
+      <circle cx="323" cy="21" r="5" fill="#88d498"/>
+      <text x="339" y="28" fill="#ddd9e7" font-size="16">Apache-2.0</text>
+    </g>
+  </g>
+
+  <text x="64" y="600" fill="#777482" font-family="Inter, Segoe UI, sans-serif" font-size="14" letter-spacing="1">INDEPENDENT COMMUNITY PROJECT · NOT AFFILIATED WITH XAI</text>
+</svg>
