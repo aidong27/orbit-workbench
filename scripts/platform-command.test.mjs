@@ -1,14 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { pnpmExecutable } from './platform-command.mjs';
+import { pnpmInvocation } from './platform-command.mjs';
 
-describe('pnpmExecutable', () => {
-  it('uses the Windows command shim on win32', () => {
-    expect(pnpmExecutable('win32')).toBe('pnpm.cmd');
+describe('pnpmInvocation', () => {
+  it('runs the pnpm JavaScript entrypoint through Node on every platform', () => {
+    expect(
+      pnpmInvocation({
+        npmExecPath: 'C:\\pnpm\\pnpm.cjs',
+        nodeExecPath: 'C:\\node\\node.exe',
+      }),
+    ).toEqual({
+      executable: 'C:\\node\\node.exe',
+      arguments: ['C:\\pnpm\\pnpm.cjs'],
+    });
   });
 
-  it('uses the executable name on Unix platforms', () => {
-    expect(pnpmExecutable('darwin')).toBe('pnpm');
-    expect(pnpmExecutable('linux')).toBe('pnpm');
+  it('fails clearly when the script is not launched by pnpm', () => {
+    expect(() => pnpmInvocation({ npmExecPath: '', nodeExecPath: '/usr/bin/node' })).toThrow(
+      'Run this license script through pnpm',
+    );
   });
 });

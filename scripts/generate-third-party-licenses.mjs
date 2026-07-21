@@ -5,15 +5,16 @@ import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-import { pnpmExecutable } from './platform-command.mjs';
+import { pnpmInvocation } from './platform-command.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputPath = join(root, 'THIRD_PARTY_LICENSES.txt');
 const require = createRequire(import.meta.url);
 
 function productionPackagePaths() {
+  const pnpm = pnpmInvocation();
   const report = JSON.parse(
-    execFileSync(pnpmExecutable(), ['licenses', 'list', '--prod', '--json'], {
+    execFileSync(pnpm.executable, [...pnpm.arguments, 'licenses', 'list', '--prod', '--json'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
