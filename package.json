@@ -23,11 +23,12 @@
     "test:watch": "vitest",
     "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
     "licenses:check": "node scripts/generate-third-party-licenses.mjs --check",
+    "electron:prepare": "node scripts/ensure-electron-runtime.mjs",
     "smoke:acp": "node scripts/smoke-acp.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm licenses:check && pnpm build",
-    "package:dir": "pnpm build && electron-builder --dir --publish never",
-    "dist:mac": "pnpm build && electron-builder --mac --arm64 --publish never",
-    "dist:win": "pnpm build && electron-builder --win --x64 --publish never"
+    "package:dir": "pnpm electron:prepare && pnpm build && electron-builder --dir --publish never",
+    "dist:mac": "pnpm electron:prepare && pnpm build && electron-builder --mac --arm64 --publish never",
+    "dist:win": "pnpm electron:prepare && pnpm build && electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
