@@ -25,6 +25,9 @@ export function TopBar({
         <div className="topbar__title">
           <strong>{session?.title ?? '新建任务'}</strong>
           {session?.demo && <span className="preview-badge">界面预览</span>}
+          {session?.continuity === 'local-history-only' && !session.demo && (
+            <span className="history-badge">仅本地历史</span>
+          )}
         </div>
         <div className="topbar__meta">
           <span>{project?.name ?? '尚未选择工作区'}</span>
@@ -51,7 +54,7 @@ export function TopBar({
         </div>
         <div className="mode-pill" title="会话模式可在输入框中切换">
           <Sparkles size={13} />
-          <span>{modeLabel(session?.currentModeId ?? null)}</span>
+          <span>{modeLabel(session?.confirmedModeId ?? null)}</span>
         </div>
         {session && (
           <span className={`session-state session-state--${session.status}`}>

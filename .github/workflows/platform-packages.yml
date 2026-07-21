@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
 
@@ -39,13 +39,46 @@ jobs:
       - name: Verify packaged application renderer and preload
         run: 'release/mac-arm64/星轨工作台.app/Contents/MacOS/星轨工作台 --smoke-test'
 
+      - name: Verify final macOS artifacts and generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dmg="$(find release -maxdepth 1 -name '*.dmg' -print -quit)"
+          zip="$(find release -maxdepth 1 -name '*.zip' -print -quit)"
+          test -n "$dmg"
+          test -n "$zip"
+
+          mount_point="$RUNNER_TEMP/orbit-workbench-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg" -mountpoint "$mount_point" -nobrowse -readonly
+          trap 'hdiutil detach "$mount_point" || true' EXIT
+          "$mount_point/星轨工作台.app/Contents/MacOS/星轨工作台" --smoke-test
+          test -s "$mount_point/星轨工作台.app/Contents/Resources/THIRD_PARTY_LICENSES.txt"
+          test -s "$mount_point/星轨工作台.app/Contents/Resources/THIRD_PARTY_LICENSES.chromium.html"
+          hdiutil detach "$mount_point"
+          trap - EXIT
+
+          zip_dir="$RUNNER_TEMP/orbit-workbench-zip"
+          mkdir -p "$zip_dir"
+          ditto -x -k "$zip" "$zip_dir"
+          "$zip_dir/星轨工作台.app/Contents/MacOS/星轨工作台" --smoke-test
+          test -s "$zip_dir/星轨工作台.app/Contents/Resources/THIRD_PARTY_LICENSES.txt"
+          test -s "$zip_dir/星轨工作台.app/Contents/Resources/THIRD_PARTY_LICENSES.chromium.html"
+
+          (
+            cd release
+            shasum -a 256 "$(basename "$dmg")" "$(basename "$zip")"
+          ) > release/SHA256SUMS-macOS-arm64.txt
+
       - name: Upload macOS packages
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: orbit-workbench-macos-arm64
           path: |
             release/*.dmg
             release/*.zip
+            release/SHA256SUMS-macOS-arm64.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -57,10 +90,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
 
@@ -113,18 +146,33 @@ jobs:
           if (-not (Test-Path (Join-Path $installDirectory "resources/THIRD_PARTY_NOTICES.md"))) {
             throw "NSIS installation is missing THIRD_PARTY_NOTICES.md."
           }
+          if (-not (Test-Path (Join-Path $installDirectory "resources/THIRD_PARTY_LICENSES.txt"))) {
+            throw "NSIS installation is missing THIRD_PARTY_LICENSES.txt."
+          }
+          if (-not (Test-Path (Join-Path $installDirectory "resources/THIRD_PARTY_LICENSES.chromium.html"))) {
+            throw "NSIS installation is missing Chromium license notices."
+          }
           Assert-SmokeTest $installedApp
 
           $portable = Get-Item "release/Orbit-Workbench-*-Windows-x64-Portable.exe"
           if ($portable.Length -le 0) {
             throw "Portable artifact is empty."
           }
+          Assert-SmokeTest $portable.FullName
+
+          $checksumLines = Get-ChildItem "release/Orbit-Workbench-*.exe" | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $checksumLines | Set-Content "release/SHA256SUMS-Windows-x64.txt" -Encoding utf8NoBOM
 
       - name: Upload Windows packages
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: orbit-workbench-windows-x64
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/SHA256SUMS-Windows-x64.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

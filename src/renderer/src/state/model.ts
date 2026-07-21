@@ -4,6 +4,11 @@ import type {
   ProjectSummary,
   SessionModeOption,
   SessionStatus,
+  UiAcpEvent,
+  UiAvailableCommand,
+  UiSessionConfigOption,
+  UiTurnUsage,
+  UiUsage,
 } from '../../../shared/types';
 
 export interface WorkspaceProject extends ProjectSummary {
@@ -17,6 +22,7 @@ export interface MessageItem {
   type: 'message';
   role: 'user' | 'assistant' | 'system';
   content: string;
+  protocolMessageId?: string | null;
   createdAt: number;
   streaming?: boolean;
   error?: boolean;
@@ -26,6 +32,7 @@ export interface ThoughtItem {
   id: string;
   type: 'thought';
   content: string;
+  protocolMessageId?: string | null;
   createdAt: number;
   streaming?: boolean;
 }
@@ -35,8 +42,18 @@ export interface ToolItem {
   type: 'tool';
   toolCallId: string;
   title: string;
-  kind: string;
-  status: string;
+  kind:
+    | 'read'
+    | 'edit'
+    | 'delete'
+    | 'move'
+    | 'search'
+    | 'execute'
+    | 'think'
+    | 'fetch'
+    | 'switch_mode'
+    | 'other';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
   content?: unknown;
   rawInput?: unknown;
   rawOutput?: unknown;
@@ -45,17 +62,24 @@ export interface ToolItem {
 }
 
 export interface PlanEntry {
+  id: string;
   content: string;
   priority: 'high' | 'medium' | 'low';
   status: 'pending' | 'in_progress' | 'completed';
 }
 
-export interface PlanItem {
+interface PlanItemBase {
   id: string;
   type: 'plan';
-  entries: PlanEntry[];
+  planId: string | null;
+  truncated?: boolean;
   createdAt: number;
 }
+
+export type PlanItem =
+  | (PlanItemBase & { format: 'items'; entries: PlanEntry[] })
+  | (PlanItemBase & { format: 'markdown'; markdown: string })
+  | (PlanItemBase & { format: 'file'; uri: string });
 
 export interface StatusItem {
   id: string;
@@ -67,6 +91,9 @@ export interface StatusItem {
 
 export type TimelineItem = MessageItem | ThoughtItem | ToolItem | PlanItem | StatusItem;
 
+export type SessionContinuity = 'fresh' | 'live' | 'local-history-only';
+export type ModeSwitchStatus = 'idle' | 'switching' | 'failed';
+
 export interface WorkSession {
   id: string;
   projectId: string;
@@ -76,16 +103,31 @@ export interface WorkSession {
   timeline: TimelineItem[];
   createdAt: number;
   updatedAt: number;
-  currentModeId: string | null;
+  continuity: SessionContinuity;
+  confirmedModeId: string | null;
+  requestedModeId: string | null;
+  modeSwitchStatus: ModeSwitchStatus;
+  modeSwitchError: string | null;
+  modeRequestId: number;
   availableModes: SessionModeOption[];
-  usage?: unknown;
+  availableCommands: UiAvailableCommand[];
+  availableCommandsTruncated?: boolean;
+  configOptions: UiSessionConfigOption[];
+  configOptionsTruncated?: boolean;
+  usage?: UiUsage;
+  lastTurnUsage?: UiTurnUsage | null;
   demo?: boolean;
 }
 
 export type InspectorTab = 'changes' | 'plan' | 'tools' | 'context';
 
 export function sessionBlocksInput(status: SessionStatus): boolean {
-  return status === 'working' || status === 'connecting' || status === 'awaiting_permission';
+  return (
+    status === 'working' ||
+    status === 'connecting' ||
+    status === 'awaiting_permission' ||
+    status === 'cancelling'
+  );
 }
 
 export interface AppState {
@@ -118,11 +160,37 @@ export type AppAction =
       acpSessionId: string;
       currentModeId: string | null;
       availableModes: SessionModeOption[];
+      configOptions: UiSessionConfigOption[];
+      configOptionsTruncated: boolean;
     }
   | { type: 'SESSION_STATUS'; sessionId: string; status: SessionStatus }
   | { type: 'SESSION_TITLE'; sessionId: string; title: string }
   | { type: 'USER_MESSAGE'; sessionId: string; text: string }
-  | { type: 'ACP_UPDATE'; sessionId: string; update: Record<string, unknown> }
+  | { type: 'ACP_EVENT'; sessionId: string; event: UiAcpEvent }
+  | {
+      type: 'MODE_PREFERENCE_SET';
+      sessionId: string;
+      modeId: string;
+      requestId: number;
+    }
+  | {
+      type: 'MODE_SWITCH_REQUESTED';
+      sessionId: string;
+      modeId: string;
+      requestId: number;
+    }
+  | {
+      type: 'MODE_SWITCH_CONFIRMED';
+      sessionId: string;
+      modeId: string;
+      requestId: number;
+    }
+  | {
+      type: 'MODE_SWITCH_FAILED';
+      sessionId: string;
+      requestId: number;
+      error: string;
+    }
   | { type: 'CONNECTION'; status: ConnectionStatus; detail?: string }
   | { type: 'PERMISSION_REQUEST'; request: PermissionRequestEvent }
   | { type: 'PERMISSION_CLEARED'; requestId: string }
@@ -156,7 +224,16 @@ export function makeSession(projectId: string): WorkSession {
     timeline: [],
     createdAt: now,
     updatedAt: now,
-    currentModeId: null,
+    continuity: 'fresh',
+    confirmedModeId: null,
+    requestedModeId: null,
+    modeSwitchStatus: 'idle',
+    modeSwitchError: null,
+    modeRequestId: 0,
     availableModes: [],
+    availableCommands: [],
+    availableCommandsTruncated: false,
+    configOptions: [],
+    configOptionsTruncated: false,
   };
 }

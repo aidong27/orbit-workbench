@@ -1,35 +1,98 @@
-import { AlertTriangle, Ban, ShieldCheck, TerminalSquare } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { AlertTriangle, Ban, FolderGit2, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { PermissionRequestEvent } from '../../../shared/types';
 import { compactJson } from '../lib/format';
 
 interface PermissionDialogProps {
   request: PermissionRequestEvent;
+  source: {
+    verified: boolean;
+    projectName: string;
+    projectPath: string;
+    sessionTitle: string;
+    background: boolean;
+    onShowSource?: () => void;
+  };
   remainingCount: number;
+  submitting: boolean;
   onResolve: (optionId?: string, cancelled?: boolean) => void;
 }
 
-export function PermissionDialog({ request, remainingCount, onResolve }: PermissionDialogProps) {
-  const toolTitle = String(request.toolCall.title ?? 'Grok 请求执行工具');
+export function PermissionDialog({
+  request,
+  source,
+  remainingCount,
+  submitting,
+  onResolve,
+}: PermissionDialogProps) {
+  const toolTitle = request.toolCall.title ?? 'Grok 请求执行工具';
   const rawInput = compactJson(request.toolCall.rawInput);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState(() =>
+    Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1_000)),
+  );
 
-  useEffect(() => cancelRef.current?.focus(), []);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    cancelRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+
+  useEffect(() => {
+    const update = (): void =>
+      setSecondsRemaining(Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1_000)));
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [request.expiresAt]);
+
+  useEffect(() => {
+    if (submitting) dialogRef.current?.focus();
+  }, [submitting]);
+
+  const onDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.key === 'Escape' && !submitting) {
+      event.preventDefault();
+      onResolve(undefined, true);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [],
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+    if (document.activeElement === dialogRef.current) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div className="modal-backdrop" role="presentation">
       <section
+        ref={dialogRef}
         className="permission-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="permission-title"
         aria-describedby="permission-description"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onResolve(undefined, true);
-          }
-        }}
+        aria-busy={submitting}
+        tabIndex={-1}
+        onKeyDown={onDialogKeyDown}
       >
         <div className="permission-dialog__icon">
           <ShieldCheck size={20} />
@@ -38,7 +101,33 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
           <span>需要你的确认</span>
           <h2 id="permission-title">{toolTitle}</h2>
           <p id="permission-description">Grok Build 在继续之前需要获得这次操作的权限。</p>
+          <p>
+            请求将在 {Math.floor(secondsRemaining / 60)}:
+            {String(secondsRemaining % 60).padStart(2, '0')} 后自动拒绝。
+          </p>
           {remainingCount > 0 && <p>完成后还有 {remainingCount} 项请求等待确认。</p>}
+        </div>
+        <div className={`permission-source ${source.background ? 'is-background' : ''}`}>
+          <FolderGit2 size={15} />
+          <dl>
+            <div>
+              <dt>工作区</dt>
+              <dd>{source.projectName}</dd>
+            </div>
+            <div>
+              <dt>路径</dt>
+              <dd title={source.projectPath}>{source.projectPath}</dd>
+            </div>
+            <div>
+              <dt>会话</dt>
+              <dd>{source.sessionTitle}</dd>
+            </div>
+          </dl>
+          {source.onShowSource && source.background && (
+            <button type="button" onClick={source.onShowSource} disabled={submitting}>
+              切换到来源会话
+            </button>
+          )}
         </div>
         {rawInput && (
           <div className="permission-command">
@@ -48,14 +137,27 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
         )}
         <div className="permission-warning">
           <AlertTriangle size={14} />
-          <span>请确认路径、命令和影响范围符合你的预期。</span>
+          <span>
+            {!source.verified
+              ? '来源无法验证，允许选项已禁用；请拒绝这次操作。'
+              : source.background
+                ? '这是后台会话发出的请求。请先核对工作区、路径和影响范围。'
+                : '请确认路径、命令和影响范围符合你的预期。'}
+          </span>
         </div>
         <div className="permission-options">
           {request.options.map((option) => (
             <button
               type="button"
               key={option.optionId}
-              className={option.kind.includes('allow') ? 'permission-option--primary' : ''}
+              className={
+                option.kind === 'allow_once'
+                  ? 'permission-option--primary'
+                  : option.kind === 'allow_always'
+                    ? 'permission-option--persistent'
+                    : ''
+              }
+              disabled={submitting || (!source.verified && option.kind.startsWith('allow'))}
               onClick={() => onResolve(option.optionId, false)}
             >
               <span>{option.name}</span>
@@ -66,6 +168,7 @@ export function PermissionDialog({ request, remainingCount, onResolve }: Permiss
             ref={cancelRef}
             type="button"
             className="permission-option--cancel"
+            disabled={submitting}
             onClick={() => onResolve(undefined, true)}
           >
             <Ban size={14} />

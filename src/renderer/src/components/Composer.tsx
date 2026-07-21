@@ -1,42 +1,58 @@
-import {
-  AtSign,
-  ChevronDown,
-  CircleStop,
-  Command,
-  CornerDownLeft,
-  Paperclip,
-  Send,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
+import { ChevronDown, CircleStop, CornerDownLeft, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { shouldSubmitComposerKey } from '../lib/composer-input';
 import { modeLabel } from '../lib/format';
 import { sessionBlocksInput, type WorkSession, type WorkspaceProject } from '../state/model';
 
 interface ComposerProps {
   project: WorkspaceProject | null;
   session: WorkSession | null;
+  value: string;
+  onValueChange: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onModeChange: (modeId: string) => void;
+  onNewSession: () => void;
   onOpenWorkspace: () => void;
 }
 
 export function Composer({
   project,
   session,
+  value,
+  onValueChange,
   onSend,
   onStop,
   onModeChange,
+  onNewSession,
   onOpenWorkspace,
 }: ComposerProps) {
-  const [value, setValue] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isWorking = session ? sessionBlocksInput(session.status) : false;
-  const canStop = Boolean(session?.acpSessionId);
-  const canSend = Boolean(project && !project.demo && session && value.trim() && !isWorking);
+  const isHistoryOnly = session?.continuity === 'local-history-only';
+  const modeDisabled =
+    isWorking || isHistoryOnly || session?.modeSwitchStatus === 'switching' || !session;
+  const canStop = Boolean(session?.acpSessionId && isWorking);
+  const canSend = Boolean(
+    project &&
+      !project.demo &&
+      session &&
+      !isHistoryOnly &&
+      value.trim() &&
+      !isWorking &&
+      session.modeSwitchStatus !== 'switching',
+  );
   const activeSessionId = session?.id;
+  const selectedModeId = session?.confirmedModeId ?? session?.requestedModeId ?? null;
+  const modeButtonLabel =
+    session?.modeSwitchStatus === 'switching'
+      ? `正在切换到${modeLabel(session.requestedModeId)}`
+      : session?.confirmedModeId
+        ? modeLabel(session.confirmedModeId)
+        : session?.requestedModeId
+          ? `${modeLabel(session.requestedModeId)}（未确认）`
+          : '跟随 Grok（待连接确认）';
 
   useEffect(() => {
     if (activeSessionId) textareaRef.current?.focus();
@@ -45,12 +61,18 @@ export function Composer({
   const submit = (): void => {
     const prompt = value.trim();
     if (!prompt || !canSend) return;
-    setValue('');
     onSend(prompt);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (
+      shouldSubmitComposerKey({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+        keyCode: event.nativeEvent.keyCode,
+      })
+    ) {
       event.preventDefault();
       submit();
     }
@@ -73,13 +95,30 @@ export function Composer({
     );
   }
 
+  if (isHistoryOnly) {
+    return (
+      <div className="composer-shell composer-shell--history-only">
+        <div className="history-only-cta" role="status">
+          <ShieldCheck size={17} />
+          <span>
+            <strong>这是本地历史记录，Grok 上下文未恢复</strong>
+            <small>为避免伪连续，不能在这段记录中直接续写。新任务不会携带旧对话。</small>
+          </span>
+          <button type="button" onClick={onNewSession}>
+            新建空白任务
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="composer-shell">
       <div className={`composer ${isWorking ? 'composer--working' : ''}`}>
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={onKeyDown}
           rows={1}
           placeholder={`在 ${project.name} 中交给 Grok 一个任务…`}
@@ -87,20 +126,15 @@ export function Composer({
         />
         <div className="composer__toolbar">
           <div className="composer__tools">
-            <button type="button" title="添加附件（即将支持）" disabled>
-              <Paperclip size={15} />
-            </button>
-            <button type="button" title="文件引用即将支持" disabled>
-              <AtSign size={15} />
-            </button>
-            <button type="button" title="斜杠命令即将支持" disabled>
-              <Command size={14} />
-            </button>
-            <span className="composer__divider" />
             <div className="mode-select">
-              <button type="button" onClick={() => setModeMenuOpen((open) => !open)}>
+              <button
+                type="button"
+                onClick={() => setModeMenuOpen((open) => !open)}
+                disabled={modeDisabled}
+                aria-busy={session?.modeSwitchStatus === 'switching'}
+              >
                 <Sparkles size={13} />
-                {modeLabel(session?.currentModeId ?? null)}
+                {modeButtonLabel}
                 <ChevronDown size={12} />
               </button>
               {modeMenuOpen && (
@@ -115,7 +149,7 @@ export function Composer({
                     <button
                       type="button"
                       key={mode.id}
-                      className={mode.id === session?.currentModeId ? 'is-active' : ''}
+                      className={mode.id === selectedModeId ? 'is-active' : ''}
                       onClick={() => {
                         setModeMenuOpen(false);
                         onModeChange(mode.id);
@@ -159,9 +193,13 @@ export function Composer({
         </div>
       </div>
       <div className="composer-hint">
-        <span>
-          <ShieldCheck size={12} /> 本机执行 · 权限可控
-        </span>
+        {session?.modeSwitchStatus === 'failed' ? (
+          <span className="composer-hint__error">模式未切换：{session.modeSwitchError}</span>
+        ) : (
+          <span>
+            <ShieldCheck size={12} /> 本机执行 · 权限可控
+          </span>
+        )}
         <span>Enter 发送 · Shift+Enter 换行</span>
       </div>
     </div>

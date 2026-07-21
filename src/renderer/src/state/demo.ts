@@ -21,16 +21,23 @@ export const demoSession: WorkSession = {
   title: '重构项目状态面板',
   acpSessionId: null,
   status: 'completed',
-  currentModeId: 'plan',
+  continuity: 'local-history-only',
+  confirmedModeId: 'plan',
+  requestedModeId: 'plan',
+  modeSwitchStatus: 'idle',
+  modeSwitchError: null,
+  modeRequestId: 0,
   availableModes: [
     { id: 'normal', name: '普通' },
     { id: 'plan', name: '计划' },
     { id: 'always-approve', name: '始终批准' },
   ],
+  availableCommands: [],
+  configOptions: [],
   createdAt: now - 3_600_000,
   updatedAt: now - 780_000,
   demo: true,
-  usage: { used: 27_480, size: 200_000 },
+  usage: { used: 27_480, size: 200_000, cost: null },
   timeline: [
     {
       id: 'demo-user',
@@ -48,11 +55,28 @@ export const demoSession: WorkSession = {
     {
       id: 'demo-plan',
       type: 'plan',
+      planId: 'demo-plan',
+      format: 'items',
       createdAt: now - 3_450_000,
       entries: [
-        { content: '梳理状态面板组件和响应式断点', priority: 'high', status: 'completed' },
-        { content: '实现紧凑布局并保持信息层级', priority: 'high', status: 'completed' },
-        { content: '补充交互测试并运行构建检查', priority: 'medium', status: 'completed' },
+        {
+          id: 'demo-plan-1',
+          content: '梳理状态面板组件和响应式断点',
+          priority: 'high',
+          status: 'completed',
+        },
+        {
+          id: 'demo-plan-2',
+          content: '实现紧凑布局并保持信息层级',
+          priority: 'high',
+          status: 'completed',
+        },
+        {
+          id: 'demo-plan-3',
+          content: '补充交互测试并运行构建检查',
+          priority: 'medium',
+          status: 'completed',
+        },
       ],
     },
     {
@@ -117,7 +141,7 @@ export const initialState: AppState = {
   inspectorTab: 'changes',
   commandPaletteOpen: false,
   settingsOpen: false,
-  appVersion: '0.2.0-alpha.1',
+  appVersion: '0.2.0-alpha.2',
   appPlatform: 'darwin',
   appArch: 'arm64',
 };

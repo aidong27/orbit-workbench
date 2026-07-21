@@ -2,7 +2,6 @@ import {
   Activity,
   Braces,
   CheckCircle2,
-  ChevronRight,
   Circle,
   FileDiff,
   GitBranch,
@@ -76,7 +75,6 @@ function ChangesPanel({
                   {status}
                 </span>
                 <span title={path}>{path}</span>
-                <ChevronRight size={12} />
               </div>
             );
           })}
@@ -99,15 +97,39 @@ function ChangesPanel({
 function PlanPanel({ session }: { session: WorkSession | null }) {
   const plan = session?.timeline.findLast((item): item is PlanItem => item.type === 'plan');
   if (!plan) return <InspectorEmpty label="Grok 制定计划后会显示在这里" />;
+  if (plan.format === 'markdown') {
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-section-heading">
+          <span>当前执行计划</span>
+          <em>{plan.truncated ? 'Markdown · 已截断' : 'Markdown'}</em>
+        </div>
+        <pre className="inspector-plan-document">{plan.markdown}</pre>
+      </div>
+    );
+  }
+  if (plan.format === 'file') {
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-section-heading">
+          <span>当前执行计划</span>
+          <em>{plan.truncated ? '文件 · 已截断' : '文件'}</em>
+        </div>
+        <code className="inspector-plan-document">{plan.uri}</code>
+      </div>
+    );
+  }
   return (
     <div className="inspector-panel">
       <div className="inspector-section-heading">
         <span>当前执行计划</span>
-        <em>{plan.entries.length} 步</em>
+        <em>
+          {plan.truncated ? `${plan.entries.length} 步 · 已截断` : `${plan.entries.length} 步`}
+        </em>
       </div>
       <div className="inspector-plan">
         {plan.entries.map((entry) => (
-          <div className={`inspector-plan__entry is-${entry.status}`} key={entry.content}>
+          <div className={`inspector-plan__entry is-${entry.status}`} key={entry.id}>
             <span>
               {entry.status === 'completed' ? <CheckCircle2 size={14} /> : <Circle size={13} />}
             </span>
@@ -190,6 +212,25 @@ function ContextPanel({
           <small>{connectionDetail}</small>
         </div>
       </div>
+      {session && (
+        <div className="session-capabilities">
+          <span>
+            {session.availableCommands.length} 个命令
+            {session.availableCommandsTruncated ? '（已截断）' : ''}
+          </span>
+          <span>
+            {session.configOptions.length} 个配置项
+            {session.configOptionsTruncated ? '（已截断）' : ''}
+          </span>
+          <span>
+            {session.continuity === 'live'
+              ? '代理上下文在线'
+              : session.continuity === 'local-history-only'
+                ? '仅本地历史'
+                : '尚未连接代理'}
+          </span>
+        </div>
+      )}
       <div className="security-note">
         <ShieldCheck size={15} />
         <div>

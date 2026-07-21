@@ -4,6 +4,7 @@ export type SessionStatus =
   | 'idle'
   | 'connecting'
   | 'working'
+  | 'cancelling'
   | 'awaiting_permission'
   | 'completed'
   | 'cancelled'
@@ -42,10 +43,148 @@ export interface SessionModeOption {
   description?: string | null;
 }
 
+export type SafeDisplayValue =
+  | string
+  | number
+  | boolean
+  | null
+  | SafeDisplayValue[]
+  | { [key: string]: SafeDisplayValue };
+
+export type UiToolKind =
+  | 'read'
+  | 'edit'
+  | 'delete'
+  | 'move'
+  | 'search'
+  | 'execute'
+  | 'think'
+  | 'fetch'
+  | 'switch_mode'
+  | 'other';
+
+export type UiToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface SanitizedToolCall {
+  toolCallId: string;
+  title?: string | null;
+  kind?: UiToolKind | null;
+  status?: UiToolStatus | null;
+  content?: SafeDisplayValue | null;
+  rawInput?: SafeDisplayValue | null;
+  rawOutput?: SafeDisplayValue | null;
+  locations?: SafeDisplayValue | null;
+}
+
+export interface UiPlanEntry {
+  content: string;
+  priority: 'high' | 'medium' | 'low';
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+export interface UiUsageCost {
+  amount: number;
+  currency: string;
+}
+
+export interface UiUsage {
+  used: number;
+  size: number;
+  cost: UiUsageCost | null;
+}
+
+export interface UiTurnUsage {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  thoughtTokens: number | null;
+  cachedReadTokens: number | null;
+  cachedWriteTokens: number | null;
+}
+
+export interface UiAvailableCommand {
+  name: string;
+  description: string;
+  inputHint: string | null;
+}
+
+export interface UiSessionConfigSelectOption {
+  value: string;
+  name: string;
+  description: string | null;
+}
+
+export interface UiSessionConfigSelectGroup {
+  group: string;
+  name: string;
+  options: UiSessionConfigSelectOption[];
+}
+
+interface UiSessionConfigOptionBase {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+}
+
+export type UiSessionConfigOption =
+  | (UiSessionConfigOptionBase & {
+      type: 'select';
+      currentValue: string;
+      options: Array<UiSessionConfigSelectOption | UiSessionConfigSelectGroup>;
+    })
+  | (UiSessionConfigOptionBase & {
+      type: 'boolean';
+      currentValue: boolean;
+    });
+
+export type UiStopReason =
+  | 'end_turn'
+  | 'max_tokens'
+  | 'max_turn_requests'
+  | 'refusal'
+  | 'cancelled';
+
+export type UiAcpEvent =
+  | {
+      type: 'message.chunk';
+      role: 'user' | 'assistant';
+      messageId: string | null;
+      text: string;
+    }
+  | {
+      type: 'thought.chunk';
+      messageId: string | null;
+      text: string;
+    }
+  | { type: 'tool.upsert'; toolCall: SanitizedToolCall }
+  | {
+      type: 'plan.items';
+      planId: string | null;
+      entries: UiPlanEntry[];
+      truncated: boolean;
+    }
+  | { type: 'plan.markdown'; planId: string; markdown: string; truncated: boolean }
+  | { type: 'plan.file'; planId: string; uri: string; truncated: boolean }
+  | { type: 'plan.remove'; planId: string }
+  | { type: 'commands.replace'; commands: UiAvailableCommand[]; truncated: boolean }
+  | { type: 'mode.confirmed'; currentModeId: string }
+  | {
+      type: 'config.replace';
+      configOptions: UiSessionConfigOption[];
+      truncated: boolean;
+    }
+  | { type: 'session.info.patch'; title?: string | null; updatedAt?: string | null }
+  | { type: 'usage.replace'; usage: UiUsage }
+  | { type: 'turn.completed'; stopReason: UiStopReason; usage: UiTurnUsage | null }
+  | { type: 'turn.failed'; detail: string };
+
 export interface CreatedSession {
   sessionId: string;
   currentModeId: string | null;
   availableModes: SessionModeOption[];
+  configOptions: UiSessionConfigOption[];
+  configOptionsTruncated: boolean;
 }
 
 export interface PromptResult {
@@ -56,7 +195,7 @@ export interface PromptResult {
 
 export interface AcpSessionEvent {
   sessionId: string;
-  update: Record<string, unknown> & { sessionUpdate: string };
+  event: UiAcpEvent;
 }
 
 export interface GrokConnectionEvent {
@@ -75,7 +214,9 @@ export interface PermissionOption {
 export interface PermissionRequestEvent {
   requestId: string;
   sessionId: string;
-  toolCall: Record<string, unknown>;
+  workspacePath: string;
+  expiresAt: number;
+  toolCall: SanitizedToolCall;
   options: PermissionOption[];
 }
 

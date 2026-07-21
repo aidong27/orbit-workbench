@@ -1,9 +1,23 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { SanitizedToolCall, UiAcpEvent } from '../../../shared/types';
 import type { AppState, WorkSession, WorkspaceProject } from './model';
 import { makeProject, makeSession, sessionBlocksInput } from './model';
-import { reducer, rehydrateState, saveState } from './reducer';
+import { reducer } from './reducer';
 
-afterEach(() => vi.unstubAllGlobals());
+function projectFixture(overrides: Partial<WorkspaceProject> = {}): WorkspaceProject {
+  return {
+    id: 'project-1',
+    path: '/tmp/project-1',
+    name: 'project-1',
+    branch: 'main',
+    isGitRepository: true,
+    changedFiles: 0,
+    statusLines: [],
+    diffStat: '',
+    addedAt: 1,
+    ...overrides,
+  };
+}
 
 function sessionFixture(overrides: Partial<WorkSession> = {}): WorkSession {
   return {
@@ -15,15 +29,22 @@ function sessionFixture(overrides: Partial<WorkSession> = {}): WorkSession {
     timeline: [],
     createdAt: 1,
     updatedAt: 1,
-    currentModeId: 'normal',
+    continuity: 'live',
+    confirmedModeId: 'normal',
+    requestedModeId: 'normal',
+    modeSwitchStatus: 'idle',
+    modeSwitchError: null,
+    modeRequestId: 0,
     availableModes: [],
+    availableCommands: [],
+    configOptions: [],
     ...overrides,
   };
 }
 
 function stateFixture(session = sessionFixture()): AppState {
   return {
-    projects: [],
+    projects: [projectFixture()],
     sessions: [session],
     activeProjectId: 'project-1',
     activeSessionId: session.id,
@@ -41,28 +62,31 @@ function stateFixture(session = sessionFixture()): AppState {
   };
 }
 
+function toolCall(overrides: Partial<SanitizedToolCall> = {}): SanitizedToolCall {
+  return {
+    toolCallId: 'tool-1',
+    ...overrides,
+  };
+}
+
+function applyEvent(state: AppState, event: UiAcpEvent): AppState {
+  return reducer(state, { type: 'ACP_EVENT', sessionId: 'local-session', event });
+}
+
 describe('Grok ACP 状态归一化', () => {
-  it('blocks a second prompt while a permission decision is pending', () => {
+  it('blocks input for every non-converged turn state', () => {
     expect(sessionBlocksInput('awaiting_permission')).toBe(true);
     expect(sessionBlocksInput('working')).toBe(true);
+    expect(sessionBlocksInput('cancelling')).toBe(true);
     expect(sessionBlocksInput('completed')).toBe(false);
   });
 
-  it('reuses the stored project id when the same workspace is opened again', () => {
-    const existing: WorkspaceProject = {
-      id: 'stored-project',
-      name: 'workspace',
-      path: '/tmp/workspace',
-      branch: 'main',
-      isGitRepository: true,
-      changedFiles: 0,
-      statusLines: [],
-      diffStat: '',
-      addedAt: 1,
-    };
+  it('reuses the stored project id and removes demo entities after opening a real workspace', () => {
+    const existing = projectFixture({ id: 'stored-project', path: '/tmp/workspace' });
+    const demo = projectFixture({ id: 'demo-project', path: '', demo: true });
     const state = {
       ...stateFixture(sessionFixture({ projectId: existing.id })),
-      projects: [existing],
+      projects: [demo, existing],
       activeProjectId: existing.id,
     };
     const reopened = makeProject(
@@ -77,312 +101,350 @@ describe('Grok ACP 状态归一化', () => {
       },
       state.projects,
     );
-    const withProject = reducer(state, { type: 'PROJECT_ADDED', project: reopened });
-    const next = reducer(withProject, {
-      type: 'SESSION_CREATED',
-      session: makeSession(reopened.id),
-    });
+    const next = reducer(state, { type: 'PROJECT_ADDED', project: reopened });
 
     expect(reopened.id).toBe(existing.id);
-    expect(next.projects).toHaveLength(1);
+    expect(next.projects).toHaveLength(2);
     expect(next.activeProjectId).toBe(existing.id);
-    expect(next.sessions[0]?.projectId).toBe(existing.id);
   });
 
-  it('drops stale ACP process state when restoring persisted sessions', () => {
-    const fallback = stateFixture();
-    const restored = rehydrateState(fallback, {
-      sessions: [
-        sessionFixture({
-          acpSessionId: 'stale-process-session',
-          status: 'awaiting_permission',
-          availableModes: [{ id: 'plan', name: '计划' }],
-        }),
-      ],
-    });
-
-    expect(restored.sessions[0]).toMatchObject({
-      acpSessionId: null,
-      status: 'idle',
-      availableModes: [],
-    });
-  });
-
-  it('detaches live ACP sessions when the child process disconnects', () => {
+  it('marks disconnected sessions as local history instead of silently recreating context', () => {
     const disconnected = reducer(
-      stateFixture(sessionFixture({ status: 'working', acpSessionId: 'live-session' })),
+      stateFixture(
+        sessionFixture({
+          status: 'working',
+          timeline: [
+            {
+              id: 'user-1',
+              type: 'message',
+              role: 'user',
+              content: '不要修改数据库',
+              createdAt: 1,
+            },
+          ],
+        }),
+      ),
       { type: 'CONNECTION', status: 'error', detail: 'ACP exited' },
     );
 
     expect(disconnected.sessions[0]).toMatchObject({
       acpSessionId: null,
+      continuity: 'local-history-only',
+      confirmedModeId: null,
       status: 'failed',
-      availableModes: [],
     });
-    expect(disconnected.connectionDetail).toBe('ACP exited');
   });
 
-  it('adds a user message and derives the initial title', () => {
-    const next = reducer(stateFixture(), {
+  it('refuses to append a user message to local-only history', () => {
+    const state = stateFixture(sessionFixture({ continuity: 'local-history-only' }));
+    const next = reducer(state, {
       type: 'USER_MESSAGE',
       sessionId: 'local-session',
-      text: '请检查登录流程并补充测试',
+      text: '按刚才方案执行',
     });
 
-    expect(next.sessions[0]?.title).toBe('请检查登录流程并补充测试');
-    expect(next.sessions[0]?.status).toBe('working');
-    expect(next.sessions[0]?.timeline).toMatchObject([
-      { type: 'message', role: 'user', content: '请检查登录流程并补充测试' },
+    expect(next.sessions[0]?.timeline).toEqual([]);
+  });
+
+  it('coalesces interleaved chunks by message id instead of timeline position', () => {
+    let state = applyEvent(stateFixture(), {
+      type: 'message.chunk',
+      role: 'assistant',
+      messageId: 'message-a',
+      text: 'A1',
+    });
+    state = applyEvent(state, {
+      type: 'message.chunk',
+      role: 'assistant',
+      messageId: 'message-b',
+      text: 'B1',
+    });
+    state = applyEvent(state, {
+      type: 'tool.upsert',
+      toolCall: toolCall({ title: '读取文件', status: 'completed' }),
+    });
+    state = applyEvent(state, {
+      type: 'message.chunk',
+      role: 'assistant',
+      messageId: 'message-a',
+      text: 'A2',
+    });
+
+    expect(state.sessions[0]?.timeline).toMatchObject([
+      { type: 'message', protocolMessageId: 'message-a', content: 'A1A2' },
+      { type: 'message', protocolMessageId: 'message-b', content: 'B1' },
+      { type: 'tool' },
     ]);
   });
 
-  it('coalesces adjacent assistant streaming chunks', () => {
-    const first = reducer(stateFixture(), {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: '已经完成' },
-      },
+  it('uses adjacent compatibility merging only when messageId is absent', () => {
+    const first = applyEvent(stateFixture(), {
+      type: 'thought.chunk',
+      messageId: null,
+      text: '正在',
     });
-    const second = reducer(first, {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: '检查。' },
-      },
+    const second = applyEvent(first, {
+      type: 'thought.chunk',
+      messageId: null,
+      text: '分析',
     });
 
-    expect(second.sessions[0]?.timeline).toHaveLength(1);
-    expect(second.sessions[0]?.timeline[0]).toMatchObject({
-      type: 'message',
-      role: 'assistant',
-      content: '已经完成检查。',
-      streaming: true,
-    });
+    expect(second.sessions[0]?.timeline).toMatchObject([
+      { type: 'thought', content: '正在分析', protocolMessageId: null },
+    ]);
   });
 
-  it('updates a tool call in place without losing its title or input', () => {
-    const created = reducer(stateFixture(), {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'tool_call',
-        toolCallId: 'tool-1',
+  it('updates partial tool calls in place and converges failed tools', () => {
+    const created = applyEvent(stateFixture(), {
+      type: 'tool.upsert',
+      toolCall: toolCall({
         title: '运行测试',
         kind: 'execute',
         status: 'in_progress',
         rawInput: { command: 'pnpm test' },
-      },
+      }),
     });
-    const completed = reducer(created, {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tool-1',
-        status: 'completed',
-        rawOutput: '12 tests passed',
-      },
+    const updated = applyEvent(created, {
+      type: 'tool.upsert',
+      toolCall: toolCall({ status: 'completed', rawOutput: '42 tests passed' }),
     });
+    const cleared = applyEvent(updated, {
+      type: 'tool.upsert',
+      toolCall: toolCall({ title: null, rawInput: null }),
+    });
+    const failed = applyEvent(created, { type: 'turn.failed', detail: '通道关闭' });
 
-    expect(completed.sessions[0]?.timeline).toHaveLength(1);
-    expect(completed.sessions[0]?.timeline[0]).toMatchObject({
+    expect(updated.sessions[0]?.timeline[0]).toMatchObject({
       type: 'tool',
       title: '运行测试',
       kind: 'execute',
       status: 'completed',
       rawInput: { command: 'pnpm test' },
-      rawOutput: '12 tests passed',
+      rawOutput: '42 tests passed',
+    });
+    expect(failed.sessions[0]?.timeline[0]).toMatchObject({ status: 'failed' });
+    expect(cleared.sessions[0]?.timeline[0]).toMatchObject({
+      title: '执行工具',
+      rawInput: null,
+      rawOutput: '42 tests passed',
     });
   });
 
-  it('bounds large tool payloads and long in-memory timelines', () => {
-    const withLargeTool = reducer(stateFixture(), {
-      type: 'ACP_UPDATE',
+  it('does not preserve a stale tool status when the protocol explicitly clears it', () => {
+    const completed = applyEvent(stateFixture(), {
+      type: 'tool.upsert',
+      toolCall: toolCall({ status: 'completed' }),
+    });
+    const cleared = applyEvent(completed, {
+      type: 'tool.upsert',
+      toolCall: toolCall({ status: null }),
+    });
+
+    expect(cleared.sessions[0]?.timeline[0]).toMatchObject({ status: 'unknown' });
+  });
+
+  it('keeps multiple plan ids, all plan formats, empty plans, and targeted removal', () => {
+    let state = applyEvent(stateFixture(), {
+      type: 'plan.items',
+      planId: 'plan-a',
+      entries: [],
+      truncated: false,
+    });
+    state = applyEvent(state, {
+      type: 'plan.markdown',
+      planId: 'plan-b',
+      markdown: '# 计划',
+      truncated: false,
+    });
+    state = applyEvent(state, {
+      type: 'plan.file',
+      planId: 'plan-c',
+      uri: 'file:///workspace/PLAN.md',
+      truncated: false,
+    });
+    state = applyEvent(state, { type: 'plan.remove', planId: 'plan-b' });
+
+    expect(state.sessions[0]?.timeline).toMatchObject([
+      { type: 'plan', planId: 'plan-a', format: 'items', entries: [] },
+      { type: 'plan', planId: 'plan-c', format: 'file' },
+    ]);
+  });
+
+  it('keeps a baseline null plan id distinct from a literal legacy-plan id', () => {
+    let state = applyEvent(stateFixture(), {
+      type: 'plan.items',
+      planId: null,
+      entries: [],
+      truncated: false,
+    });
+    state = applyEvent(state, {
+      type: 'plan.markdown',
+      planId: 'legacy-plan',
+      markdown: '# 独立计划',
+      truncated: true,
+    });
+    state = applyEvent(state, { type: 'plan.remove', planId: 'legacy-plan' });
+
+    expect(state.sessions[0]?.timeline).toMatchObject([
+      { type: 'plan', planId: null, format: 'items' },
+    ]);
+  });
+
+  it('gives duplicate plan entries distinct stable keys', () => {
+    const event: UiAcpEvent = {
+      type: 'plan.items',
+      planId: 'plan-a',
+      entries: [
+        { content: '运行测试', priority: 'high', status: 'pending' },
+        { content: '运行测试', priority: 'medium', status: 'completed' },
+      ],
+      truncated: false,
+    };
+    const first = applyEvent(stateFixture(), event);
+    const second = applyEvent(first, event);
+    const firstPlan = first.sessions[0]?.timeline[0];
+    const secondPlan = second.sessions[0]?.timeline[0];
+    if (firstPlan?.type !== 'plan' || firstPlan.format !== 'items') throw new Error('missing plan');
+    if (secondPlan?.type !== 'plan' || secondPlan.format !== 'items')
+      throw new Error('missing plan');
+
+    expect(new Set(firstPlan.entries.map((entry) => entry.id)).size).toBe(2);
+    expect(secondPlan.entries.map((entry) => entry.id)).toEqual(
+      firstPlan.entries.map((entry) => entry.id),
+    );
+  });
+
+  it('treats confirmed and requested modes as separate transactional facts', () => {
+    const requested = reducer(stateFixture(), {
+      type: 'MODE_SWITCH_REQUESTED',
       sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'tool_call',
-        toolCallId: 'large-tool',
-        rawOutput: 'x'.repeat(60_000),
+      modeId: 'plan',
+      requestId: 1,
+    });
+    expect(requested.sessions[0]).toMatchObject({
+      confirmedModeId: 'normal',
+      requestedModeId: 'plan',
+      modeSwitchStatus: 'switching',
+    });
+
+    const failed = reducer(requested, {
+      type: 'MODE_SWITCH_FAILED',
+      sessionId: 'local-session',
+      requestId: 1,
+      error: 'agent rejected mode',
+    });
+    expect(failed.sessions[0]).toMatchObject({
+      confirmedModeId: 'normal',
+      requestedModeId: 'normal',
+      modeSwitchStatus: 'failed',
+    });
+
+    const stale = reducer(failed, {
+      type: 'MODE_SWITCH_CONFIRMED',
+      sessionId: 'local-session',
+      modeId: 'plan',
+      requestId: 0,
+    });
+    expect(stale.sessions[0]?.confirmedModeId).toBe('normal');
+  });
+
+  it('stores commands, config, and typed usage as full replacements', () => {
+    let state = applyEvent(stateFixture(), {
+      type: 'commands.replace',
+      commands: [{ name: 'review', description: '审查', inputHint: null }],
+      truncated: false,
+    });
+    state = applyEvent(state, {
+      type: 'config.replace',
+      configOptions: [
+        {
+          type: 'boolean',
+          id: 'thinking',
+          name: '深度思考',
+          description: null,
+          category: 'thought_level',
+          currentValue: true,
+        },
+      ],
+      truncated: false,
+    });
+    state = applyEvent(state, {
+      type: 'usage.replace',
+      usage: { used: 4_096, size: 128_000, cost: null },
+    });
+
+    expect(state.sessions[0]).toMatchObject({
+      availableCommands: [{ name: 'review' }],
+      availableCommandsTruncated: false,
+      configOptions: [{ id: 'thinking', currentValue: true }],
+      configOptionsTruncated: false,
+      usage: { used: 4_096, size: 128_000 },
+    });
+  });
+
+  it('retains turn usage and treats max turn requests as a warning terminal state', () => {
+    const usage = {
+      totalTokens: 100,
+      inputTokens: 60,
+      outputTokens: 40,
+      thoughtTokens: null,
+      cachedReadTokens: null,
+      cachedWriteTokens: null,
+    };
+    const state = applyEvent(stateFixture(), {
+      type: 'turn.completed',
+      stopReason: 'max_turn_requests',
+      usage,
+    });
+
+    expect(state.sessions[0]?.lastTurnUsage).toEqual(usage);
+    expect(state.sessions[0]?.timeline.at(-1)).toMatchObject({ tone: 'warning' });
+  });
+
+  it('routes permission requests and does not revive terminal sessions when cleared', () => {
+    const requested = reducer(stateFixture(), {
+      type: 'PERMISSION_REQUEST',
+      request: {
+        requestId: 'permission-1',
+        sessionId: 'acp-session',
+        workspacePath: '/tmp/project-1',
+        expiresAt: Date.now() + 1_000,
+        toolCall: toolCall({ title: '写入文件' }),
+        options: [{ optionId: 'allow-once', name: '允许一次', kind: 'allow_once' }],
       },
     });
-    const tool = withLargeTool.sessions[0]?.timeline[0];
-    expect(tool?.type).toBe('tool');
-    if (tool?.type === 'tool') {
-      expect(String(tool.rawOutput).length).toBeLessThan(51_000);
-      expect(String(tool.rawOutput)).toContain('内容已截断');
-    }
+    expect(requested.sessions[0]?.status).toBe('awaiting_permission');
 
-    let current = stateFixture();
+    const completed = {
+      ...requested,
+      sessions: requested.sessions.map((session) => ({ ...session, status: 'completed' as const })),
+    };
+    const cleared = reducer(completed, {
+      type: 'PERMISSION_CLEARED',
+      requestId: 'permission-1',
+    });
+    expect(cleared.sessions[0]?.status).toBe('completed');
+    expect(cleared.pendingPermissions).toHaveLength(0);
+  });
+
+  it('bounds long in-memory timelines', () => {
+    let state = stateFixture();
     for (let index = 0; index < 620; index += 1) {
-      current = reducer(current, {
+      state = reducer(state, {
         type: 'USER_MESSAGE',
         sessionId: 'local-session',
         text: `message-${index}`,
       });
     }
-    expect(current.sessions[0]?.timeline).toHaveLength(600);
+    expect(state.sessions[0]?.timeline).toHaveLength(600);
   });
 
-  it('does not persist tool payloads or file locations', () => {
-    const setItem = vi.fn();
-    vi.stubGlobal('localStorage', { setItem });
-    const state = stateFixture(
-      sessionFixture({
-        timeline: [
-          {
-            id: 'tool-sensitive',
-            type: 'tool',
-            toolCallId: 'tool-sensitive',
-            title: '读取私有文件',
-            kind: 'read',
-            status: 'completed',
-            content: 'private content',
-            rawInput: { path: '/Users/alice/private.txt' },
-            rawOutput: 'secret result',
-            locations: [{ path: '/Users/alice/private.txt', line: 1 }],
-            createdAt: 1,
-          },
-        ],
-      }),
-    );
-
-    saveState(state);
-
-    const raw = setItem.mock.calls[0]?.[1];
-    expect(typeof raw).toBe('string');
-    const saved = JSON.parse(String(raw)) as AppState;
-    const item = saved.sessions[0]?.timeline[0];
-    expect(item).toMatchObject({ type: 'tool', title: '读取私有文件' });
-    expect(item).not.toHaveProperty('content');
-    expect(item).not.toHaveProperty('rawInput');
-    expect(item).not.toHaveProperty('rawOutput');
-    expect(item).not.toHaveProperty('locations');
-  });
-
-  it('stores the latest plan and finalizes a streamed turn', () => {
-    const planned = reducer(stateFixture(), {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'plan',
-        entries: [
-          { content: '检查实现', priority: 'high', status: 'completed' },
-          { content: '运行测试', priority: 'medium', status: 'in_progress' },
-        ],
-      },
+  it('creates fresh sessions with no falsely confirmed mode', () => {
+    const session = makeSession('project-1');
+    expect(session).toMatchObject({
+      continuity: 'fresh',
+      confirmedModeId: null,
+      requestedModeId: null,
     });
-    const streaming = reducer(planned, {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: {
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: '完成。' },
-      },
-    });
-    const done = reducer(streaming, {
-      type: 'ACP_UPDATE',
-      sessionId: 'local-session',
-      update: { sessionUpdate: 'client_turn_complete', stopReason: 'end_turn' },
-    });
-
-    expect(done.sessions[0]?.status).toBe('completed');
-    expect(done.sessions[0]?.timeline).toMatchObject([
-      { type: 'plan', entries: [{ status: 'completed' }, { status: 'in_progress' }] },
-      { type: 'message', streaming: false },
-      { type: 'status', tone: 'success' },
-    ]);
-  });
-
-  it('routes permission requests to the matching local session', () => {
-    const requested = reducer(stateFixture(), {
-      type: 'PERMISSION_REQUEST',
-      request: {
-        requestId: 'permission-1',
-        sessionId: 'acp-session',
-        toolCall: { title: '写入文件' },
-        options: [{ optionId: 'allow-once', name: '允许一次', kind: 'allow_once' }],
-      },
-    });
-    expect(requested.sessions[0]?.status).toBe('awaiting_permission');
-    expect(requested.pendingPermissions[0]?.requestId).toBe('permission-1');
-
-    const cleared = reducer(requested, {
-      type: 'PERMISSION_CLEARED',
-      requestId: 'permission-1',
-    });
-    expect(cleared.sessions[0]?.status).toBe('working');
-    expect(cleared.pendingPermissions).toHaveLength(0);
-  });
-
-  it('queues concurrent permission requests without losing either session', () => {
-    const secondSession = sessionFixture({
-      id: 'local-session-2',
-      projectId: 'project-2',
-      acpSessionId: 'acp-session-2',
-    });
-    const state = { ...stateFixture(), sessions: [sessionFixture(), secondSession] };
-    const first = reducer(state, {
-      type: 'PERMISSION_REQUEST',
-      request: {
-        requestId: 'permission-1',
-        sessionId: 'acp-session',
-        toolCall: { title: '写入文件' },
-        options: [],
-      },
-    });
-    const queued = reducer(first, {
-      type: 'PERMISSION_REQUEST',
-      request: {
-        requestId: 'permission-2',
-        sessionId: 'acp-session-2',
-        toolCall: { title: '运行命令' },
-        options: [],
-      },
-    });
-    const cleared = reducer(queued, {
-      type: 'PERMISSION_CLEARED',
-      requestId: 'permission-1',
-    });
-
-    expect(queued.pendingPermissions.map((request) => request.requestId)).toEqual([
-      'permission-1',
-      'permission-2',
-    ]);
-    expect(cleared.pendingPermissions[0]?.requestId).toBe('permission-2');
-    expect(cleared.sessions.find((session) => session.id === 'local-session')?.status).toBe(
-      'working',
-    );
-    expect(cleared.sessions.find((session) => session.id === 'local-session-2')?.status).toBe(
-      'awaiting_permission',
-    );
-  });
-
-  it('does not revive a terminal session when an expired permission is cleared', () => {
-    const requested = reducer(stateFixture(), {
-      type: 'PERMISSION_REQUEST',
-      request: {
-        requestId: 'permission-expired',
-        sessionId: 'acp-session',
-        toolCall: { title: '等待超时' },
-        options: [],
-      },
-    });
-    const completed = {
-      ...requested,
-      sessions: requested.sessions.map((session) => ({
-        ...session,
-        status: 'completed' as const,
-      })),
-    };
-    const cleared = reducer(completed, {
-      type: 'PERMISSION_CLEARED',
-      requestId: 'permission-expired',
-    });
-
-    expect(cleared.sessions[0]?.status).toBe('completed');
-    expect(cleared.pendingPermissions).toHaveLength(0);
   });
 });

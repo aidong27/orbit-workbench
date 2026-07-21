@@ -465,7 +465,8 @@ kbd {
 }
 
 .status-working,
-.status-connecting {
+.status-connecting,
+.status-cancelling {
   background: var(--cyan);
   box-shadow: 0 0 0 3px rgba(125, 207, 255, 0.08);
   animation: soft-pulse 1.6s ease-in-out infinite;
@@ -653,6 +654,15 @@ kbd {
   font-size: 8px;
 }
 
+.history-badge {
+  border: 1px solid rgba(255, 219, 141, 0.22);
+  border-radius: 4px;
+  background: rgba(255, 219, 141, 0.07);
+  padding: 2px 5px;
+  color: var(--yellow);
+  font-size: 9px;
+}
+
 .topbar__meta {
   display: flex;
   align-items: center;
@@ -728,6 +738,9 @@ kbd {
 .session-state--working {
   color: var(--cyan);
 }
+.session-state--cancelling {
+  color: var(--yellow);
+}
 .session-state--awaiting_permission {
   color: var(--yellow);
 }
@@ -758,6 +771,7 @@ kbd {
 /* Conversation timeline */
 .conversation-scroll,
 .welcome-scroll {
+  position: relative;
   min-height: 0;
   flex: 1;
   overflow-x: hidden;
@@ -782,6 +796,19 @@ kbd {
   padding: 8px 11px;
   color: #aa96c7;
   font-size: 9.5px;
+}
+
+.history-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 24px;
+  border: 1px solid rgba(255, 219, 141, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 219, 141, 0.045);
+  padding: 9px 11px;
+  color: #b4a27d;
+  font-size: 11px;
 }
 
 .timeline-message {
@@ -1054,6 +1081,9 @@ kbd {
 .tool-status--failed {
   color: var(--red);
 }
+.tool-status--cancelled {
+  color: var(--yellow);
+}
 
 .tool-status__spinner {
   width: 8px;
@@ -1125,6 +1155,25 @@ kbd {
   margin: 0;
   padding: 7px 10px 9px;
   list-style: none;
+}
+.plan-card__markdown {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.plan-card__file {
+  display: block;
+  overflow: hidden;
+  padding: 12px;
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  user-select: text;
+  white-space: nowrap;
 }
 .plan-entry {
   display: flex;
@@ -1297,6 +1346,10 @@ kbd {
 .mode-select > button {
   font-size: 9px;
 }
+.mode-select > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .mode-menu {
   position: absolute;
   bottom: 34px;
@@ -1377,6 +1430,72 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.composer-hint__error {
+  max-width: 70%;
+  overflow: hidden;
+  color: var(--red);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-shell--history-only {
+  padding-top: 12px;
+}
+.history-only-cta {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 219, 141, 0.18);
+  border-radius: 9px;
+  background: rgba(31, 31, 33, 0.96);
+  padding: 10px 12px;
+  color: var(--yellow);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+.history-only-cta > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.history-only-cta strong {
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 550;
+}
+.history-only-cta small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.history-only-cta button {
+  border: 1px solid rgba(255, 219, 141, 0.22);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--yellow);
+  font-size: 10px;
+}
+.history-only-cta button:hover {
+  background: rgba(255, 219, 141, 0.08);
+}
+
+.jump-to-latest {
+  position: sticky;
+  bottom: 14px;
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 5px;
+  margin: -52px auto 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgba(35, 35, 37, 0.95);
+  padding: 6px 10px;
+  color: var(--text-soft);
+  font-size: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .composer-shell--onboarding {
@@ -1648,6 +1767,23 @@ kbd {
   color: var(--muted);
 }
 
+.inspector-plan-document {
+  display: block;
+  max-height: 360px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-deep);
+  padding: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.55;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
 .inspector-tool {
   display: grid;
   min-height: 54px;
@@ -1764,6 +1900,20 @@ kbd {
   font-size: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 9px 0;
+}
+.session-capabilities span {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  color: var(--faint);
+  font-size: 9px;
 }
 
 .security-note {
@@ -2008,6 +2158,51 @@ kbd {
   color: var(--muted);
   font-size: 10px;
 }
+.permission-source {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 10px;
+  color: var(--blue);
+}
+.permission-source.is-background {
+  border-color: rgba(255, 219, 141, 0.2);
+  color: var(--yellow);
+}
+.permission-source dl {
+  min-width: 0;
+  margin: 0;
+}
+.permission-source dl > div {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 6px;
+  line-height: 1.55;
+}
+.permission-source dt {
+  color: var(--faint);
+  font-size: 9px;
+}
+.permission-source dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.permission-source > button {
+  grid-column: 2;
+  width: max-content;
+  margin-top: 5px;
+  color: var(--yellow);
+  font-size: 9px;
+}
 .permission-command {
   display: grid;
   max-height: 180px;
@@ -2065,6 +2260,15 @@ kbd {
 .permission-options .permission-option--primary {
   border-color: rgba(158, 206, 106, 0.2);
   background: rgba(158, 206, 106, 0.045);
+}
+.permission-options .permission-option--persistent {
+  border-color: rgba(247, 118, 142, 0.24);
+  background: rgba(247, 118, 142, 0.055);
+  color: #db9aa6;
+}
+.permission-options button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
 }
 .permission-options .permission-option--cancel {
   justify-content: flex-start;
