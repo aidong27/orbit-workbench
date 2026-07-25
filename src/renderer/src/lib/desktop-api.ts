@@ -27,7 +27,7 @@ function emitSession(event: AcpSessionEvent): void {
 const browserPreviewApi: GrokDesktopApi = {
   reportRendererReady: async () => undefined,
   getAppInfo: async () => ({
-    version: '0.2.0-alpha.1',
+    version: '0.2.0-alpha.3',
     platform: previewPlatform,
     arch: previewArch,
     isPackaged: false,
@@ -53,7 +53,7 @@ const browserPreviewApi: GrokDesktopApi = {
     diffStat: '',
   }),
   checkGrok: async () => ({
-    status: 'ready',
+    status: 'detected',
     binaryPath: previewIsWindows
       ? `${previewHome}\\.grok\\bin\\grok.exe`
       : `${previewHome}/.grok/bin/grok`,
@@ -74,36 +74,51 @@ const browserPreviewApi: GrokDesktopApi = {
       { id: 'plan', name: '计划', description: '先审阅计划，再执行改动' },
       { id: 'always-approve', name: '始终批准', description: '自动批准工具调用' },
     ],
+    configOptions: [],
+    configOptionsTruncated: false,
   }),
   sendPrompt: async (sessionId, text) => {
     await wait(250);
     emitSession({
       sessionId,
-      update: {
-        sessionUpdate: 'agent_thought_chunk',
-        content: { type: 'text', text: '正在检查工作区结构与相关文件。' },
+      event: {
+        type: 'thought.chunk',
+        messageId: 'preview-thought',
+        text: '正在检查工作区结构与相关文件。',
       },
     });
     await wait(350);
     emitSession({
       sessionId,
-      update: {
-        sessionUpdate: 'tool_call',
-        toolCallId: 'preview-search',
-        title: '搜索相关实现',
-        kind: 'search',
-        status: 'in_progress',
-        rawInput: { query: text.slice(0, 48) },
+      event: {
+        type: 'tool.upsert',
+        toolCall: {
+          toolCallId: 'preview-search',
+          title: '搜索相关实现',
+          kind: 'search',
+          status: 'in_progress',
+          content: null,
+          rawInput: { query: text.slice(0, 48) },
+          rawOutput: null,
+          locations: null,
+        },
       },
     });
     await wait(450);
     emitSession({
       sessionId,
-      update: {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'preview-search',
-        status: 'completed',
-        rawOutput: '已定位 4 个相关文件',
+      event: {
+        type: 'tool.upsert',
+        toolCall: {
+          toolCallId: 'preview-search',
+          title: null,
+          kind: null,
+          status: 'completed',
+          content: null,
+          rawInput: null,
+          rawOutput: '已定位 4 个相关文件',
+          locations: null,
+        },
       },
     });
     const chunks = [
@@ -115,29 +130,31 @@ const browserPreviewApi: GrokDesktopApi = {
       await wait(220);
       emitSession({
         sessionId,
-        update: {
-          sessionUpdate: 'agent_message_chunk',
-          content: { type: 'text', text: chunk },
+        event: {
+          type: 'message.chunk',
+          role: 'assistant',
+          messageId: 'preview-answer',
+          text: chunk,
         },
       });
     }
     await wait(180);
     emitSession({
       sessionId,
-      update: { sessionUpdate: 'client_turn_complete', stopReason: 'end_turn' },
+      event: { type: 'turn.completed', stopReason: 'end_turn', usage: null },
     });
     return { sessionId, stopReason: 'end_turn' };
   },
   cancelSession: async (sessionId) => {
     emitSession({
       sessionId,
-      update: { sessionUpdate: 'client_turn_complete', stopReason: 'cancelled' },
+      event: { type: 'turn.completed', stopReason: 'cancelled', usage: null },
     });
   },
   setSessionMode: async (sessionId, modeId) => {
     emitSession({
       sessionId,
-      update: { sessionUpdate: 'current_mode_update', currentModeId: modeId },
+      event: { type: 'mode.confirmed', currentModeId: modeId },
     });
   },
   resolvePermission: async () => undefined,

@@ -1,6 +1,6 @@
 {
   "name": "orbit-workbench",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.3",
   "private": true,
   "description": "星轨工作台：非官方 Grok Build 中文图形客户端",
   "author": "aidong27",
@@ -21,11 +21,14 @@
     "format": "biome check --write src electron.vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
+    "licenses:check": "node scripts/generate-third-party-licenses.mjs --check",
+    "electron:prepare": "node scripts/ensure-electron-runtime.mjs",
     "smoke:acp": "node scripts/smoke-acp.mjs",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "package:dir": "pnpm build && electron-builder --dir --publish never",
-    "dist:mac": "pnpm build && electron-builder --mac --arm64 --publish never",
-    "dist:win": "pnpm build && electron-builder --win --x64 --publish never"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm licenses:check && pnpm build",
+    "package:dir": "pnpm electron:prepare && pnpm build && electron-builder --dir --publish never",
+    "dist:mac": "pnpm electron:prepare && pnpm build && electron-builder --mac --arm64 --publish never",
+    "dist:win": "pnpm electron:prepare && pnpm build && electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
@@ -39,6 +42,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/node": "26.1.1",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
@@ -46,6 +52,7 @@
     "electron": "43.1.1",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
+    "jsdom": "29.1.1",
     "typescript": "7.0.2",
     "vite": "7.3.6",
     "vitest": "4.1.10"
@@ -54,6 +61,14 @@
     "appId": "cn.aidong27.orbit-workbench",
     "productName": "星轨工作台",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
     "directories": {
       "output": "release"
     },
@@ -69,6 +84,14 @@
       {
         "from": "THIRD_PARTY_NOTICES.md",
         "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "THIRD_PARTY_LICENSES.txt",
+        "to": "THIRD_PARTY_LICENSES.txt"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "to": "THIRD_PARTY_LICENSES.chromium.html"
       }
     ],
     "mac": {

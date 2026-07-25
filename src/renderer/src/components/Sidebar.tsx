@@ -1,5 +1,4 @@
 import {
-  ChevronsUpDown,
   Command,
   FolderGit2,
   FolderOpen,
@@ -9,6 +8,7 @@ import {
   Search,
   Settings,
 } from 'lucide-react';
+import { connectionView } from '../lib/connection';
 import { statusLabel, timeAgo } from '../lib/format';
 import type { AppState } from '../state/model';
 import { OrbitMark } from './OrbitMark';
@@ -109,7 +109,7 @@ export function Sidebar({
         </button>
         <button type="button" className="command-button" onClick={onOpenCommands}>
           <Search size={15} />
-          <span>搜索与命令</span>
+          <span>命令</span>
           <kbd>{shortcutPrefix}K</kbd>
         </button>
       </div>
@@ -130,6 +130,7 @@ export function Sidebar({
                 className={
                   project.id === state.activeProjectId ? 'workspace-row is-active' : 'workspace-row'
                 }
+                aria-current={project.id === state.activeProjectId ? 'page' : undefined}
                 onClick={() => onSelectProject(project.id)}
               >
                 <FolderGit2 size={15} />
@@ -146,14 +147,6 @@ export function Sidebar({
         <section className="sidebar-section sidebar-section--sessions">
           <div className="sidebar-section__heading">
             <span>最近任务</span>
-            <button
-              type="button"
-              aria-label="会话排序（即将支持）"
-              title="排序选项即将支持"
-              disabled
-            >
-              <ChevronsUpDown size={14} />
-            </button>
           </div>
           <div className="session-list">
             {activeProjectSessions.length === 0 ? (
@@ -168,6 +161,7 @@ export function Sidebar({
                   className={
                     session.id === state.activeSessionId ? 'session-row is-active' : 'session-row'
                   }
+                  aria-current={session.id === state.activeSessionId ? 'page' : undefined}
                   onClick={() => onSelectSession(session.id)}
                 >
                   <span className={`session-row__dot status-${session.status}`} />
@@ -190,11 +184,18 @@ export function Sidebar({
           <span>设置</span>
           <kbd>{shortcutPrefix},</kbd>
         </button>
-        <div className="sidebar__engine">
+        <button
+          type="button"
+          className="sidebar__engine"
+          onClick={onOpenSettings}
+          aria-label={`Grok Build：${connectionView(state.connectionStatus, state.connectionIssueCode).label}，打开连接中心`}
+        >
           <span className={`connection-dot connection-${state.connectionStatus}`} />
-          <span>{state.connectionStatus === 'ready' ? 'Grok 已连接' : 'Grok 未连接'}</span>
+          <span>
+            Grok {connectionView(state.connectionStatus, state.connectionIssueCode).label}
+          </span>
           <Command size={12} />
-        </div>
+        </button>
       </div>
     </aside>
   );

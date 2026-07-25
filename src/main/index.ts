@@ -18,7 +18,7 @@ import {
 } from 'electron';
 import type { ProjectSummary } from '../shared/types';
 import { isAllowedExternalUrl } from '../shared/url';
-import { GrokAcpManager, inspectGrokBinary } from './grok-acp';
+import { classifyConnectionIssue, GrokAcpManager, inspectGrokBinary } from './grok-acp';
 import { permissionResolution, requiredString } from './ipc-validation';
 import { contentSecurityPolicy, isTrustedMainFrame } from './security';
 
@@ -136,6 +136,19 @@ function createWindow(): BrowserWindow {
 
   trustedWebContentsIds.add(webContentsId);
   const unregister = grok.registerWebContents(window.webContents);
+  let rendererLoaded = false;
+  window.webContents.on('did-finish-load', () => {
+    rendererLoaded = true;
+  });
+  window.webContents.on('did-start-loading', () => {
+    if (!rendererLoaded) return;
+    rendererLoaded = false;
+    grok.releaseSessionsForWebContents(webContentsId);
+  });
+  window.webContents.on('render-process-gone', () => {
+    rendererLoaded = false;
+    grok.releaseSessionsForWebContents(webContentsId);
+  });
   window.on('closed', () => {
     unregister();
     trustedWebContentsIds.delete(webContentsId);
@@ -209,34 +222,40 @@ function registerIpc(): void {
     assertTrustedSender(event);
     return inspectGrokBinary();
   });
-  ipcMain.handle('grok:connect', (event) => {
+  ipcMain.handle('grok:connect', async (event) => {
     assertTrustedSender(event);
-    return grok.connect();
+    try {
+      return await grok.connect();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '连接 Grok Build 失败。';
+      return { status: 'error' as const, detail, ...classifyConnectionIssue(detail) };
+    }
   });
   ipcMain.handle('grok:create-session', (event, cwd: unknown) => {
     assertTrustedSender(event);
-    return validateDirectory(cwd).then((safeCwd) => grok.createSession(safeCwd));
+    return validateDirectory(cwd).then((safeCwd) => grok.createSession(safeCwd, event.sender.id));
   });
   ipcMain.handle('grok:send-prompt', (event, sessionId: unknown, text: unknown) => {
     assertTrustedSender(event);
     const safeSessionId = requiredString(sessionId, '会话 ID', 256);
     const prompt = requiredString(text, '任务内容', 200_000).trim();
-    return grok.sendPrompt(safeSessionId, prompt);
+    return grok.sendPrompt(safeSessionId, prompt, event.sender.id);
   });
   ipcMain.handle('grok:cancel-session', (event, sessionId: unknown) => {
     assertTrustedSender(event);
-    return grok.cancelSession(requiredString(sessionId, '会话 ID', 256));
+    return grok.cancelSession(requiredString(sessionId, '会话 ID', 256), event.sender.id);
   });
   ipcMain.handle('grok:set-mode', (event, sessionId: unknown, modeId: unknown) => {
     assertTrustedSender(event);
     return grok.setSessionMode(
       requiredString(sessionId, '会话 ID', 256),
       requiredString(modeId, '模式 ID', 256),
+      event.sender.id,
     );
   });
   ipcMain.handle('grok:resolve-permission', (event, resolution: unknown) => {
     assertTrustedSender(event);
-    return grok.resolvePermission(permissionResolution(resolution));
+    return grok.resolvePermission(permissionResolution(resolution), event.sender.id);
   });
 }
 
@@ -259,6 +278,10 @@ function startSmokeTestTimeout(): void {
 
 function configureSecurityHeaders(): void {
   const policy = contentSecurityPolicy(app.isPackaged);
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+    callback(false);
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -271,16 +294,28 @@ function configureSecurityHeaders(): void {
 
 app.setAppUserModelId(APP_ID);
 
-app.whenReady().then(() => {
-  if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
-  configureSecurityHeaders();
-  registerIpc();
-  startSmokeTestTimeout();
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
   });
-});
+  app.whenReady().then(() => {
+    if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
+    configureSecurityHeaders();
+    registerIpc();
+    startSmokeTestTimeout();
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

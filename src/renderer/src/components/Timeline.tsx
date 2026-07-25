@@ -1,4 +1,5 @@
 import {
+  ArrowDown,
   Bot,
   Check,
   CheckCircle2,
@@ -13,7 +14,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isAllowedExternalUrl } from '../../../shared/url';
@@ -83,7 +84,7 @@ function ThoughtCard({ item }: { item: ThoughtItem }) {
   const [open, setOpen] = useState(false);
   return (
     <article className="thought-card">
-      <button type="button" onClick={() => setOpen((value) => !value)}>
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <Sparkles size={13} />
         <span>过程摘要</span>
         {item.streaming && (
@@ -112,7 +113,8 @@ function ToolCard({ item }: { item: ToolItem }) {
         type="button"
         className="tool-card__header"
         onClick={() => expandable && setOpen((value) => !value)}
-        aria-expanded={open}
+        aria-expanded={expandable ? open : undefined}
+        disabled={!expandable}
       >
         <span className="tool-card__icon">
           <ToolIcon kind={item.kind} />
@@ -124,6 +126,12 @@ function ToolCard({ item }: { item: ToolItem }) {
         <span className={`tool-status tool-status--${item.status}`}>
           {item.status === 'completed' ? (
             <Check size={11} />
+          ) : item.status === 'failed' ? (
+            <XCircle size={11} />
+          ) : item.status === 'cancelled' ? (
+            <Circle size={10} />
+          ) : item.status === 'unknown' ? (
+            <Circle size={10} />
           ) : (
             <span className="tool-status__spinner" />
           )}
@@ -152,6 +160,46 @@ function ToolCard({ item }: { item: ToolItem }) {
 }
 
 function PlanCard({ item }: { item: PlanItem }) {
+  if (item.format === 'markdown') {
+    return (
+      <article className="plan-card">
+        <div className="plan-card__header">
+          <span className="plan-card__diamond">◆</span>
+          <strong>执行计划</strong>
+          <span>{item.truncated ? 'Markdown · 已截断' : 'Markdown'}</span>
+        </div>
+        <div className="plan-card__markdown markdown-body">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children }) =>
+                href && isAllowedExternalUrl(href) ? (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ) : (
+                  <span>{children}</span>
+                ),
+            }}
+          >
+            {item.markdown}
+          </ReactMarkdown>
+        </div>
+      </article>
+    );
+  }
+  if (item.format === 'file') {
+    return (
+      <article className="plan-card">
+        <div className="plan-card__header">
+          <span className="plan-card__diamond">◆</span>
+          <strong>执行计划</strong>
+          <span>{item.truncated ? '文件 · 已截断' : '文件'}</span>
+        </div>
+        <code className="plan-card__file">{item.uri}</code>
+      </article>
+    );
+  }
   const completed = item.entries.filter((entry) => entry.status === 'completed').length;
   return (
     <article className="plan-card">
@@ -160,11 +208,13 @@ function PlanCard({ item }: { item: PlanItem }) {
         <strong>执行计划</strong>
         <span>
           {completed}/{item.entries.length}
+          {item.truncated ? ' · 已截断' : ''}
         </span>
       </div>
       <ol>
+        {item.entries.length === 0 && <li className="plan-entry">计划当前没有步骤</li>}
         {item.entries.map((entry) => (
-          <li key={entry.content} className={`plan-entry plan-entry--${entry.status}`}>
+          <li key={entry.id} className={`plan-entry plan-entry--${entry.status}`}>
             <span className="plan-entry__state">
               {entry.status === 'completed' ? (
                 <CheckCircle2 size={14} />
@@ -204,24 +254,75 @@ function TimelineEntry({ item }: { item: TimelineItemType }) {
   }
 }
 
-export function Timeline({ session }: { session: WorkSession }) {
+export function Timeline({
+  session,
+  emptyState,
+}: {
+  session: WorkSession;
+  emptyState?: ReactNode;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const timelineLength = session.timeline.length;
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const lastItem = session.timeline.at(-1);
+  const contentVersion =
+    lastItem?.type === 'message' || lastItem?.type === 'thought' ? lastItem.content.length : 0;
 
-  useEffect(() => {
-    if (timelineLength === 0 && session.status === 'idle') return;
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = 'auto'): void => {
     const node = scrollRef.current;
     if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
-  }, [timelineLength, session.status]);
+    nearBottomRef.current = true;
+    setShowJumpToLatest(false);
+    node.scrollTo({ top: node.scrollHeight, behavior });
+  }, []);
+
+  useEffect(() => {
+    if (!session.id) return;
+    nearBottomRef.current = true;
+    const frame = window.requestAnimationFrame(() => scrollToLatest('auto'));
+    return () => window.cancelAnimationFrame(frame);
+  }, [session.id, scrollToLatest]);
+
+  useEffect(() => {
+    if (contentVersion === 0 && session.timeline.length === 0) return;
+    if (!nearBottomRef.current) return;
+    scrollToLatest(session.status === 'working' ? 'auto' : 'smooth');
+  }, [contentVersion, session.status, session.timeline.length, scrollToLatest]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (nearBottomRef.current) scrollToLatest('auto');
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [scrollToLatest]);
 
   return (
-    <div className="conversation-scroll" ref={scrollRef}>
-      <div className="conversation-canvas">
+    <div
+      className="conversation-scroll"
+      ref={scrollRef}
+      onScroll={(event) => {
+        const node = event.currentTarget;
+        const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 72;
+        nearBottomRef.current = nearBottom;
+        setShowJumpToLatest(!nearBottom);
+      }}
+    >
+      <div className="conversation-canvas" ref={canvasRef}>
+        {session.timeline.length === 0 && session.status !== 'connecting' && emptyState}
         {session.demo && (
           <div className="preview-notice">
             <Bot size={14} />
             <span>这是功能界面预览。打开真实工作区后，会连接本机 Grok Build。</span>
+          </div>
+        )}
+        {session.continuity === 'local-history-only' && !session.demo && (
+          <div className="history-notice" role="status">
+            <Bot size={14} />
+            <span>仅本地历史：界面保留了记录，但 Grok 代理上下文没有恢复。</span>
           </div>
         )}
         {session.timeline.map((item) => (
@@ -234,6 +335,11 @@ export function Timeline({ session }: { session: WorkSession }) {
           </div>
         )}
       </div>
+      {showJumpToLatest && (
+        <button type="button" className="jump-to-latest" onClick={() => scrollToLatest('smooth')}>
+          <ArrowDown size={13} /> 跳到最新
+        </button>
+      )}
     </div>
   );
 }

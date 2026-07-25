@@ -36,6 +36,8 @@
 | 能力 | 说明 |
 | --- | --- |
 | 真实 ACP 会话 | 直接连接本机 Grok Build 进程，呈现流式回复、过程摘要、计划与工具状态。 |
+| 连接引导 | 区分 CLI 检测与 ACP 就绪状态，失败后可就地重试并复制脱敏诊断。 |
+| 状态真实 | 历史上下文、模式切换和流式消息均以协议确认结果为准，不用界面状态代替代理事实。 |
 | 中文优先 | 工作区、命令面板、设置、权限确认和错误信息均以中文组织。 |
 | 本地优先 | 界面不读取或保存 `XAI_API_KEY`；登录、模型请求和工具执行由用户自己的 CLI 负责。 |
 | 权限在前 | ACP 请求敏感操作时进入明确的确认队列，不在界面层默认放行。 |
@@ -44,7 +46,7 @@
 
 ## 平台支持
 
-当前版本为 **`0.2.0-alpha.1`**。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
+当前版本为 **`0.2.0-alpha.3`**。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
 
 | 平台 | 架构 | 构建产物 | 状态 |
 | --- | --- | --- | --- |
@@ -69,9 +71,9 @@ Windows 版本需要可以直接执行的 `grok.exe`。应用会依次检查 `GR
 
 前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)，根据系统下载：
 
-- Windows x64：`Orbit-Workbench-0.2.0-alpha.1-Windows-x64-Setup.exe`
-- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.1-Windows-x64-Portable.exe`
-- macOS arm64：`Orbit-Workbench-0.2.0-alpha.1-macOS-arm64.dmg` 或 `.zip`
+- Windows x64：`Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Setup.exe`
+- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Portable.exe`
+- macOS arm64：`Orbit-Workbench-0.2.0-alpha.3-macOS-arm64.dmg` 或 `.zip`
 
 > [!WARNING]
 > 当前 Alpha 安装包尚未进行 Windows 代码签名或 Apple Developer ID 公证，系统可能显示来源警告。请只从本仓库 Releases 下载，并在运行前核对发布页提供的校验值；无法确认来源时请改为从源码构建。
@@ -125,10 +127,13 @@ Electron 主进程（路径验证、Git 检查、权限队列）
 用户本机的 Grok Build CLI（认证、模型、工具执行）
 ```
 
-- 界面与本地状态不读取或保存 `XAI_API_KEY`；启动的 Grok 子进程会继承应用启动环境，供 CLI 按其自身认证规则使用。
+- 界面与本地状态不读取或保存 `XAI_API_KEY`；Grok 子进程只继承经过白名单允许的运行时、Grok/xAI、代理和证书变量，并拒绝 Node/Electron 注入变量。
 - 渲染进程启用沙箱和上下文隔离，不具备任意文件系统或 shell 权限。
-- 本地只保存界面偏好、工作区路径、会话标题和裁剪后的时间线。
+- ACP SDK 原始对象先在主进程转换为类型化、限长且可安全显示的事件，renderer 不直接解释 SDK 协议对象。
+- 权限弹窗会显示来源工作区、路径和会话；超大、过深或无法安全归一化的载荷不会原样进入 renderer。
+- 本地保存界面偏好、工作区路径、会话标题、裁剪后的时间线，以及最近一次 Git 分支、文件状态列表和差异统计快照；这些数据使用带版本号和校验的 v3 格式，但当前不加密。
 - ACP 会话 ID、权限请求和工具原始输入/输出不会跨进程持久化。
+- 重启后保存的旧时间线只作为“仅本地历史”展示，不代表上游代理上下文已经恢复；要继续工作需显式新建任务。
 
 请通过 [GitHub Private Vulnerability Reporting](https://github.com/aidong27/orbit-workbench/security/advisories/new) 私密报告安全问题，不要在公开 Issue 中提交密钥、真实项目内容或本地绝对路径。详见[安全政策](SECURITY.md)。
 
@@ -144,7 +149,7 @@ docs/            架构、安装和发布检查资料
 build/           原创应用图标与平台打包资源
 ```
 
-进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
+进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [0.2.0-alpha.3 发布说明](docs/RELEASE_NOTES.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
 
 ## 参与项目
 

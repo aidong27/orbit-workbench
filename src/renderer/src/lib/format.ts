@@ -17,7 +17,7 @@ export function modeLabel(modeId: string | null): string {
     'always-approve': '始终批准',
     always_approve: '始终批准',
   };
-  return modeId ? (labels[modeId] ?? modeId) : '普通';
+  return modeId ? (labels[modeId] ?? modeId) : '未确认';
 }
 
 export function statusLabel(status: string): string {
@@ -25,10 +25,12 @@ export function statusLabel(status: string): string {
     idle: '空闲',
     connecting: '连接中',
     working: '进行中',
+    cancelling: '正在停止',
     awaiting_permission: '待你确认',
     completed: '已完成',
     cancelled: '已停止',
     failed: '失败',
+    unknown: '状态未知',
     pending: '待处理',
     in_progress: '执行中',
   };

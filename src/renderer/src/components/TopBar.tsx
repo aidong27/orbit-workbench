@@ -1,4 +1,6 @@
 import { Bot, GitBranch, PanelRightClose, PanelRightOpen, RefreshCw, Sparkles } from 'lucide-react';
+import type { ConnectionStatus } from '../../../shared/types';
+import { connectionView } from '../lib/connection';
 import { modeLabel, statusLabel } from '../lib/format';
 import type { WorkSession, WorkspaceProject } from '../state/model';
 
@@ -6,7 +8,8 @@ interface TopBarProps {
   project: WorkspaceProject | null;
   session: WorkSession | null;
   inspectorOpen: boolean;
-  connectionStatus: string;
+  connectionStatus: ConnectionStatus;
+  onOpenConnectionCenter: () => void;
   onToggleInspector: () => void;
   onRefreshProject: () => void;
 }
@@ -16,6 +19,7 @@ export function TopBar({
   session,
   inspectorOpen,
   connectionStatus,
+  onOpenConnectionCenter,
   onToggleInspector,
   onRefreshProject,
 }: TopBarProps) {
@@ -25,6 +29,9 @@ export function TopBar({
         <div className="topbar__title">
           <strong>{session?.title ?? '新建任务'}</strong>
           {session?.demo && <span className="preview-badge">界面预览</span>}
+          {session?.continuity === 'local-history-only' && !session.demo && (
+            <span className="history-badge">仅本地历史</span>
+          )}
         </div>
         <div className="topbar__meta">
           <span>{project?.name ?? '尚未选择工作区'}</span>
@@ -44,14 +51,26 @@ export function TopBar({
       </div>
 
       <div className="topbar__actions no-drag">
-        <div className={`engine-pill engine-pill--${connectionStatus}`} title="本机 Grok ACP 状态">
+        <button
+          type="button"
+          className={`engine-pill engine-pill--${connectionStatus}`}
+          onClick={onOpenConnectionCenter}
+          title="打开 Grok 连接中心"
+          aria-label={`Grok Build：${connectionView(connectionStatus).label}，打开连接中心`}
+        >
           <span className="engine-pill__pulse" />
           <Bot size={14} />
-          <span>Grok Build</span>
-        </div>
+          <span>Grok {connectionView(connectionStatus).label}</span>
+        </button>
         <div className="mode-pill" title="会话模式可在输入框中切换">
           <Sparkles size={13} />
-          <span>{modeLabel(session?.currentModeId ?? null)}</span>
+          <span>
+            {session?.confirmedModeId
+              ? modeLabel(session.confirmedModeId)
+              : session?.requestedModeId
+                ? `${modeLabel(session.requestedModeId)}待确认`
+                : '首条任务时确认'}
+          </span>
         </div>
         {session && (
           <span className={`session-state session-state--${session.status}`}>

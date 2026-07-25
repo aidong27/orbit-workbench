@@ -4,7 +4,7 @@
 
 Orbit Workbench is distributed under the Apache License 2.0. It also depends on third-party software released under separate licenses. Those licenses apply to their respective components and are not replaced by the project license.
 
-The following list covers the direct runtime components in `0.2.0-alpha.1`. Transitive dependencies and build tooling are recorded in `pnpm-lock.yaml`; packaged distributions should retain the license files produced by the dependency and packaging toolchains.
+The following list summarizes the direct runtime components in `0.2.0-alpha.3`. Complete license text for the production dependency graph and Electron is generated in [`THIRD_PARTY_LICENSES.txt`](THIRD_PARTY_LICENSES.txt); Electron's Chromium notices ship separately as `THIRD_PARTY_LICENSES.chromium.html`. Transitive dependency versions remain recorded in `pnpm-lock.yaml`.
 
 ## Apache License 2.0
 

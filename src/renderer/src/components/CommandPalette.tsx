@@ -31,6 +31,7 @@ export function CommandPalette({
   onOpenSettings,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const shortcutPrefix = platform === 'darwin' ? '⌘' : 'Ctrl+';
   const commands = useMemo<CommandItem[]>(
@@ -65,7 +66,7 @@ export function CommandPalette({
       },
       {
         id: 'settings',
-        label: '打开设置与关于',
+        label: '打开连接中心与设置',
         hint: `${shortcutPrefix},`,
         icon: Settings,
         run: onOpenSettings,
@@ -85,6 +86,7 @@ export function CommandPalette({
   useEffect(() => {
     if (open) {
       setQuery('');
+      setSelectedIndex(0);
       window.setTimeout(() => inputRef.current?.focus(), 30);
     }
   }, [open]);
@@ -102,27 +104,67 @@ export function CommandPalette({
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="command-palette-title"
       >
+        <h2 id="command-palette-title" className="visually-hidden">
+          命令
+        </h2>
         <div className="command-palette__input">
           <Search size={16} />
           <input
             ref={inputRef}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSelectedIndex(0);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onClose();
-              if (event.key === 'Enter' && filtered[0]) run(filtered[0]);
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setSelectedIndex((index) => Math.min(index + 1, filtered.length - 1));
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setSelectedIndex((index) => Math.max(index - 1, 0));
+              }
+              if (event.key === 'Home') {
+                event.preventDefault();
+                setSelectedIndex(0);
+              }
+              if (event.key === 'End') {
+                event.preventDefault();
+                setSelectedIndex(Math.max(filtered.length - 1, 0));
+              }
+              if (event.key === 'Enter' && filtered[selectedIndex]) {
+                run(filtered[selectedIndex]);
+              }
             }}
             placeholder="搜索命令…"
+            role="combobox"
+            aria-controls="command-results"
+            aria-expanded="true"
+            aria-activedescendant={
+              filtered[selectedIndex] ? `command-${filtered[selectedIndex].id}` : undefined
+            }
           />
           <kbd>Esc</kbd>
         </div>
-        <div className="command-palette__group">
+        <div className="command-palette__group" id="command-results" role="listbox">
           <span>常用命令</span>
-          {filtered.map((command) => {
+          {filtered.map((command, index) => {
             const Icon = command.icon;
             return (
-              <button type="button" key={command.id} onClick={() => run(command)}>
+              <button
+                type="button"
+                key={command.id}
+                id={`command-${command.id}`}
+                className={index === selectedIndex ? 'is-active' : ''}
+                onMouseMove={() => setSelectedIndex(index)}
+                onClick={() => run(command)}
+                role="option"
+                aria-selected={index === selectedIndex}
+              >
                 <span className="command-palette__icon">
                   <Icon size={15} />
                 </span>

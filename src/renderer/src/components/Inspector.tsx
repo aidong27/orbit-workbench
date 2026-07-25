@@ -2,7 +2,6 @@ import {
   Activity,
   Braces,
   CheckCircle2,
-  ChevronRight,
   Circle,
   FileDiff,
   GitBranch,
@@ -12,6 +11,7 @@ import {
   TerminalSquare,
   Wrench,
 } from 'lucide-react';
+import type { ConnectionStatus } from '../../../shared/types';
 import { compactJson, statusLabel, toolKindLabel } from '../lib/format';
 import type {
   InspectorTab,
@@ -26,7 +26,7 @@ interface InspectorProps {
   session: WorkSession | null;
   appVersion: string;
   activeTab: InspectorTab;
-  connectionStatus: string;
+  connectionStatus: ConnectionStatus;
   connectionDetail: string;
   onTabChange: (tab: InspectorTab) => void;
   onRefreshProject: () => void;
@@ -76,7 +76,6 @@ function ChangesPanel({
                   {status}
                 </span>
                 <span title={path}>{path}</span>
-                <ChevronRight size={12} />
               </div>
             );
           })}
@@ -99,15 +98,39 @@ function ChangesPanel({
 function PlanPanel({ session }: { session: WorkSession | null }) {
   const plan = session?.timeline.findLast((item): item is PlanItem => item.type === 'plan');
   if (!plan) return <InspectorEmpty label="Grok 制定计划后会显示在这里" />;
+  if (plan.format === 'markdown') {
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-section-heading">
+          <span>当前执行计划</span>
+          <em>{plan.truncated ? 'Markdown · 已截断' : 'Markdown'}</em>
+        </div>
+        <pre className="inspector-plan-document">{plan.markdown}</pre>
+      </div>
+    );
+  }
+  if (plan.format === 'file') {
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-section-heading">
+          <span>当前执行计划</span>
+          <em>{plan.truncated ? '文件 · 已截断' : '文件'}</em>
+        </div>
+        <code className="inspector-plan-document">{plan.uri}</code>
+      </div>
+    );
+  }
   return (
     <div className="inspector-panel">
       <div className="inspector-section-heading">
         <span>当前执行计划</span>
-        <em>{plan.entries.length} 步</em>
+        <em>
+          {plan.truncated ? `${plan.entries.length} 步 · 已截断` : `${plan.entries.length} 步`}
+        </em>
       </div>
       <div className="inspector-plan">
         {plan.entries.map((entry) => (
-          <div className={`inspector-plan__entry is-${entry.status}`} key={entry.content}>
+          <div className={`inspector-plan__entry is-${entry.status}`} key={entry.id}>
             <span>
               {entry.status === 'completed' ? <CheckCircle2 size={14} /> : <Circle size={13} />}
             </span>
@@ -159,7 +182,7 @@ function ContextPanel({
   connectionDetail,
 }: {
   session: WorkSession | null;
-  connectionStatus: string;
+  connectionStatus: ConnectionStatus;
   connectionDetail: string;
 }) {
   const usage = session?.usage as { used?: number; size?: number; total?: number } | undefined;
@@ -190,6 +213,25 @@ function ContextPanel({
           <small>{connectionDetail}</small>
         </div>
       </div>
+      {session && (
+        <div className="session-capabilities">
+          <span>
+            {session.availableCommands.length} 个命令
+            {session.availableCommandsTruncated ? '（已截断）' : ''}
+          </span>
+          <span>
+            {session.configOptions.length} 个配置项
+            {session.configOptionsTruncated ? '（已截断）' : ''}
+          </span>
+          <span>
+            {session.continuity === 'live'
+              ? '代理上下文在线'
+              : session.continuity === 'local-history-only'
+                ? '仅本地历史'
+                : '尚未连接代理'}
+          </span>
+        </div>
+      )}
       <div className="security-note">
         <ShieldCheck size={15} />
         <div>
@@ -224,8 +266,8 @@ export function Inspector({
 }: InspectorProps) {
   return (
     <aside className="inspector">
-      <div className="inspector__tabs">
-        {tabs.map((tab) => {
+      <div className="inspector__tabs" role="tablist" aria-label="检查器">
+        {tabs.map((tab, index) => {
           const Icon = tab.icon;
           return (
             <button
@@ -233,6 +275,22 @@ export function Inspector({
               key={tab.id}
               className={tab.id === activeTab ? 'is-active' : ''}
               onClick={() => onTabChange(tab.id)}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const offset = event.key === 'ArrowRight' ? 1 : -1;
+                const nextIndex = (index + offset + tabs.length) % tabs.length;
+                const next = tabs[nextIndex];
+                if (!next) return;
+                onTabChange(next.id);
+                const buttons = event.currentTarget.parentElement?.querySelectorAll('button');
+                buttons?.[nextIndex]?.focus();
+              }}
+              role="tab"
+              id={`inspector-tab-${tab.id}`}
+              aria-controls="inspector-panel"
+              aria-selected={tab.id === activeTab}
+              tabIndex={tab.id === activeTab ? 0 : -1}
             >
               <Icon size={14} />
               <span>{tab.label}</span>
@@ -240,7 +298,12 @@ export function Inspector({
           );
         })}
       </div>
-      <div className="inspector__body">
+      <div
+        className="inspector__body"
+        role="tabpanel"
+        id="inspector-panel"
+        aria-labelledby={`inspector-tab-${activeTab}`}
+      >
         {activeTab === 'changes' && <ChangesPanel project={project} onRefresh={onRefreshProject} />}
         {activeTab === 'plan' && <PlanPanel session={session} />}
         {activeTab === 'tools' && <ToolsPanel session={session} />}
