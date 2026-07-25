@@ -36,6 +36,7 @@ Orbit Workbench gives an already-installed Grok Build CLI a Chinese desktop inte
 | Capability | What it provides |
 | --- | --- |
 | Real ACP sessions | Streamed messages, summaries, plans, tool calls, and completion status from the local CLI. |
+| Guided connection | Separates CLI detection from ACP readiness, with in-place retry and copyable redacted diagnostics. |
 | Truthful state | History continuity, mode switches, and streamed messages reflect protocol-confirmed state rather than UI assumptions. |
 | Chinese-first UX | Chinese workspace, command palette, settings, permission prompts, and errors. |
 | Local-first boundary | Credentials, model requests, and tool execution stay with the user's CLI. |
@@ -45,7 +46,7 @@ Orbit Workbench gives an already-installed Grok Build CLI a Chinese desktop inte
 
 ## Supported platforms
 
-The current release is **`0.2.0-alpha.2`**. Alpha builds are intended for testing and review, not irreplaceable workspaces.
+The current release is **`0.2.0-alpha.3`**. Alpha builds are intended for testing and review, not irreplaceable workspaces.
 
 | Platform | Architecture | Packages | Status |
 | --- | --- | --- | --- |
@@ -85,7 +86,7 @@ pnpm dist:mac    # macOS arm64 packages
 
 ## Security model
 
-Orbit Workbench's UI and local state do not read or store `XAI_API_KEY`. The Grok child receives an allowlisted set of runtime, Grok/xAI, proxy, and certificate variables; Node/Electron injection variables are always blocked. The sandboxed renderer has no Node.js access. Raw ACP SDK objects are converted in the main process into typed, size-bounded display events before they cross validated IPC. Permission prompts identify their workspace, path, and session source. Persisted UI history uses a validated, versioned v2 format and is restored as local-history-only: it does not imply that the upstream agent context was resumed.
+Orbit Workbench's UI and local state do not read or store `XAI_API_KEY`. The Grok child receives an allowlisted set of runtime, Grok/xAI, proxy, and certificate variables; Node/Electron injection variables are always blocked. The sandboxed renderer has no Node.js access. Raw ACP SDK objects are converted in the main process into typed, size-bounded display events before they cross validated IPC. Permission prompts identify their workspace, path, and session source. Persisted UI history uses a validated, versioned v3 format and is restored as local-history-only: it does not imply that the upstream agent context was resumed.
 
 Report vulnerabilities privately through [GitHub Private Vulnerability Reporting](https://github.com/aidong27/orbit-workbench/security/advisories/new). Never post credentials, private source code, or local absolute paths in a public issue. See [SECURITY.md](SECURITY.md).
 
@@ -95,7 +96,7 @@ Report vulnerabilities privately through [GitHub Private Vulnerability Reporting
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Support policy](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [0.2.0-alpha.2 release notes](docs/RELEASE_NOTES.md)
+- [0.2.0-alpha.3 release notes](docs/RELEASE_NOTES.md)
 - [Changelog](CHANGELOG.md)
 
 ## License and trademarks

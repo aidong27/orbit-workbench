@@ -1,4 +1,22 @@
-export type ConnectionStatus = 'checking' | 'ready' | 'offline' | 'error';
+export type ConnectionStatus =
+  | 'checking'
+  | 'detected'
+  | 'connecting'
+  | 'ready'
+  | 'offline'
+  | 'error';
+
+export type ConnectionIssueCode =
+  | 'binary_missing'
+  | 'version_check_failed'
+  | 'authentication_failed'
+  | 'authentication_unsupported'
+  | 'protocol_incompatible'
+  | 'protocol_invalid'
+  | 'timeout'
+  | 'process_failed'
+  | 'channel_closed'
+  | 'unknown';
 
 export type SessionStatus =
   | 'idle'
@@ -25,6 +43,8 @@ export interface GrokStatus {
   version: string | null;
   authenticated: boolean | null;
   detail?: string;
+  issueCode?: ConnectionIssueCode;
+  retryable?: boolean;
 }
 
 export interface ProjectSummary {
@@ -203,6 +223,8 @@ export interface GrokConnectionEvent {
   detail?: string;
   agentName?: string;
   agentVersion?: string;
+  issueCode?: ConnectionIssueCode;
+  retryable?: boolean;
 }
 
 export interface PermissionOption {

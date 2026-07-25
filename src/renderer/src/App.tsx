@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import type { UiAcpEvent } from '../../shared/types';
 import { CommandPalette } from './components/CommandPalette';
 import { Composer } from './components/Composer';
+import { EmptySession } from './components/EmptySession';
 import { Inspector } from './components/Inspector';
 import { PermissionDialog } from './components/PermissionDialog';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -9,7 +10,9 @@ import { Sidebar } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
 import { TopBar } from './components/TopBar';
 import { Welcome } from './components/Welcome';
+import { cleanDesktopError } from './lib/connection';
 import { desktopApi, isBrowserPreview } from './lib/desktop-api';
+import { runEngineConnectionAttempt } from './lib/engine-connection';
 import { runSessionTaskOnce } from './lib/in-flight';
 import { decideInitialMode } from './lib/session-mode';
 import { type StreamChunkEvent, streamChunkKey } from './lib/stream-chunks';
@@ -27,8 +30,16 @@ export default function App() {
   const modeRequestSequence = useRef(0);
   const modeRequestsInFlight = useRef(new Set<string>());
   const permissionSubmittingRef = useRef(false);
+  const connectionAttemptSequence = useRef(0);
+  const connectionInFlight = useRef<Promise<void> | null>(null);
+  const persistenceWarningShown = useRef(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [permissionSubmitting, setPermissionSubmitting] = useState(false);
+  const [notice, setNotice] = useState<{
+    id: number;
+    tone: 'info' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
   stateRef.current = state;
 
   const activeProject = useMemo(
@@ -39,16 +50,42 @@ export default function App() {
     () => state.sessions.find((session) => session.id === state.activeSessionId) ?? null,
     [state.sessions, state.activeSessionId],
   );
+  const showError = useCallback((error: unknown, fallback: string): void => {
+    setNotice({
+      id: Date.now(),
+      tone: 'error',
+      message: cleanDesktopError(error, fallback),
+    });
+  }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => saveState(state), 250);
+    const timer = window.setTimeout(() => {
+      const saved = saveState(state);
+      if (!saved && !persistenceWarningShown.current) {
+        persistenceWarningShown.current = true;
+        setNotice({
+          id: Date.now(),
+          tone: 'warning',
+          message: '本地历史暂时无法保存；当前任务仍可继续，请检查可用磁盘空间。',
+        });
+      }
+      if (saved) persistenceWarningShown.current = false;
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [state]);
 
   useEffect(() => {
-    const flushState = (): void => saveState(stateRef.current);
+    const flushState = (): void => {
+      saveState(stateRef.current);
+    };
     window.addEventListener('beforeunload', flushState);
     return () => window.removeEventListener('beforeunload', flushState);
+  }, []);
+
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 1180px)').matches && stateRef.current.inspectorOpen) {
+      dispatch({ type: 'INSPECTOR_TOGGLED' });
+    }
   }, []);
 
   useEffect(() => {
@@ -118,7 +155,7 @@ export default function App() {
         acpSessionRoutes.current.clear();
         unroutedAcpEvents.current.clear();
       }
-      dispatch({ type: 'CONNECTION', status: event.status, detail: event.detail });
+      dispatch({ type: 'CONNECTION_EVENT', event });
     });
     return () => {
       offUpdate();
@@ -127,6 +164,16 @@ export default function App() {
       offConnection();
       discardChunks();
     };
+  }, []);
+
+  const retryConnection = useCallback(() => {
+    if (connectionInFlight.current) return;
+    const attemptId = ++connectionAttemptSequence.current;
+    const attempt = runEngineConnectionAttempt(desktopApi, attemptId, dispatch);
+    connectionInFlight.current = attempt;
+    void attempt.finally(() => {
+      if (connectionInFlight.current === attempt) connectionInFlight.current = null;
+    });
   }, []);
 
   useEffect(() => {
@@ -142,33 +189,14 @@ export default function App() {
         await desktopApi.reportRendererReady();
       })
       .catch((error) => {
-        dispatch({
-          type: 'CONNECTION',
-          status: 'error',
-          detail: error instanceof Error ? error.message : '无法读取应用信息',
+        setNotice({
+          id: Date.now(),
+          tone: 'error',
+          message: cleanDesktopError(error, '无法读取应用信息'),
         });
       });
-    void desktopApi
-      .checkGrok()
-      .then(async (status) => {
-        dispatch({
-          type: 'CONNECTION',
-          status: status.status,
-          detail: status.detail ?? status.version ?? undefined,
-        });
-        if (status.status === 'ready') {
-          const connected = await desktopApi.connectGrok();
-          dispatch({ type: 'CONNECTION', status: connected.status, detail: connected.detail });
-        }
-      })
-      .catch((error) => {
-        dispatch({
-          type: 'CONNECTION',
-          status: 'error',
-          detail: error instanceof Error ? error.message : '无法连接 Grok Build',
-        });
-      });
-  }, []);
+    retryConnection();
+  }, [retryConnection]);
 
   const openWorkspace = useCallback(async () => {
     try {
@@ -179,9 +207,9 @@ export default function App() {
       const session = makeSession(project.id);
       dispatch({ type: 'SESSION_CREATED', session });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '无法打开工作区');
+      showError(error, '无法打开工作区');
     }
-  }, []);
+  }, [showError]);
 
   const newSession = useCallback(() => {
     const current = stateRef.current;
@@ -200,6 +228,7 @@ export default function App() {
     if (
       !localSession ||
       !project ||
+      current.connectionStatus !== 'ready' ||
       project.demo ||
       !project.path ||
       localSession.continuity === 'local-history-only' ||
@@ -414,26 +443,29 @@ export default function App() {
       const summary = await desktopApi.inspectProject(project.path);
       dispatch({ type: 'PROJECT_UPDATED', project: { ...project, ...summary } });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '无法刷新 Git 状态');
+      showError(error, '无法刷新 Git 状态');
     }
-  }, []);
+  }, [showError]);
 
-  const resolvePermission = useCallback(async (optionId?: string, cancelled?: boolean) => {
-    if (permissionSubmittingRef.current) return;
-    const request = stateRef.current.pendingPermissions[0];
-    if (!request) return;
-    permissionSubmittingRef.current = true;
-    setPermissionSubmitting(true);
-    try {
-      await desktopApi.resolvePermission({ requestId: request.requestId, optionId, cancelled });
-      dispatch({ type: 'PERMISSION_CLEARED', requestId: request.requestId });
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : '无法提交权限选择');
-    } finally {
-      permissionSubmittingRef.current = false;
-      setPermissionSubmitting(false);
-    }
-  }, []);
+  const resolvePermission = useCallback(
+    async (optionId?: string, cancelled?: boolean) => {
+      if (permissionSubmittingRef.current) return;
+      const request = stateRef.current.pendingPermissions[0];
+      if (!request) return;
+      permissionSubmittingRef.current = true;
+      setPermissionSubmitting(true);
+      try {
+        await desktopApi.resolvePermission({ requestId: request.requestId, optionId, cancelled });
+        dispatch({ type: 'PERMISSION_CLEARED', requestId: request.requestId });
+      } catch (error) {
+        showError(error, '无法提交权限选择');
+      } finally {
+        permissionSubmittingRef.current = false;
+        setPermissionSubmitting(false);
+      }
+    },
+    [showError],
+  );
 
   const toggleSidebar = useCallback(() => dispatch({ type: 'SIDEBAR_TOGGLED' }), []);
   const toggleInspector = useCallback(() => dispatch({ type: 'INSPECTOR_TOGGLED' }), []);
@@ -492,20 +524,49 @@ export default function App() {
           session={activeSession}
           inspectorOpen={state.inspectorOpen}
           connectionStatus={state.connectionStatus}
+          onOpenConnectionCenter={openSettings}
           onToggleInspector={toggleInspector}
           onRefreshProject={refreshProject}
         />
         <div className="workspace-main__content">
           <section className="conversation">
             {activeSession ? (
-              <Timeline session={activeSession} />
+              <Timeline
+                session={activeSession}
+                emptyState={
+                  activeProject ? (
+                    <EmptySession
+                      project={activeProject}
+                      connectionStatus={state.connectionStatus}
+                      connectionIssueCode={state.connectionIssueCode}
+                      onChoosePrompt={(prompt) => {
+                        setDrafts((current) => ({ ...current, [activeSession.id]: prompt }));
+                      }}
+                      onRetryConnection={retryConnection}
+                      onOpenConnectionCenter={openSettings}
+                    />
+                  ) : undefined
+                }
+              />
             ) : (
-              <Welcome onOpenWorkspace={openWorkspace} />
+              <Welcome
+                connectionStatus={state.connectionStatus}
+                connectionDetail={state.connectionDetail}
+                connectionIssueCode={state.connectionIssueCode}
+                binaryPath={state.grokBinaryPath}
+                cliVersion={state.grokCliVersion}
+                onRetryConnection={retryConnection}
+                onOpenWorkspace={openWorkspace}
+                onOpenConnectionCenter={openSettings}
+              />
             )}
             <Composer
               project={activeProject}
               session={activeSession}
               value={activeSession ? (drafts[activeSession.id] ?? '') : ''}
+              connectionStatus={state.connectionStatus}
+              connectionIssueCode={state.connectionIssueCode}
+              connectionDetail={state.connectionDetail}
               onValueChange={(value) => {
                 if (!activeSession) return;
                 setDrafts((current) => ({ ...current, [activeSession.id]: value }));
@@ -514,7 +575,8 @@ export default function App() {
               onStop={stopSession}
               onModeChange={changeMode}
               onNewSession={newSession}
-              onOpenWorkspace={openWorkspace}
+              onRetryConnection={retryConnection}
+              onOpenConnectionCenter={openSettings}
             />
           </section>
           {state.inspectorOpen && (
@@ -549,8 +611,22 @@ export default function App() {
         arch={state.appArch}
         connectionStatus={state.connectionStatus}
         connectionDetail={`${state.connectionDetail}${isBrowserPreview ? ' · 当前为浏览器视觉预览' : ''}`}
+        connectionIssueCode={state.connectionIssueCode}
+        binaryPath={state.grokBinaryPath}
+        cliVersion={state.grokCliVersion}
+        agentName={state.grokAgentName}
+        agentVersion={state.grokAgentVersion}
+        onRetryConnection={retryConnection}
         onClose={() => dispatch({ type: 'SETTINGS', open: false })}
       />
+      {notice && (
+        <div className={`app-notice notice notice--${notice.tone}`} role="alert">
+          <span>{notice.message}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="关闭通知">
+            知道了
+          </button>
+        </div>
+      )}
       {state.pendingPermissions[0] && (
         <PermissionDialog
           key={state.pendingPermissions[0].requestId}

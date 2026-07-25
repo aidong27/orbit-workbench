@@ -27,7 +27,7 @@ function emitSession(event: AcpSessionEvent): void {
 const browserPreviewApi: GrokDesktopApi = {
   reportRendererReady: async () => undefined,
   getAppInfo: async () => ({
-    version: '0.2.0-alpha.2',
+    version: '0.2.0-alpha.3',
     platform: previewPlatform,
     arch: previewArch,
     isPackaged: false,
@@ -53,7 +53,7 @@ const browserPreviewApi: GrokDesktopApi = {
     diffStat: '',
   }),
   checkGrok: async () => ({
-    status: 'ready',
+    status: 'detected',
     binaryPath: previewIsWindows
       ? `${previewHome}\\.grok\\bin\\grok.exe`
       : `${previewHome}/.grok/bin/grok`,

@@ -18,7 +18,7 @@ import {
 } from 'electron';
 import type { ProjectSummary } from '../shared/types';
 import { isAllowedExternalUrl } from '../shared/url';
-import { GrokAcpManager, inspectGrokBinary } from './grok-acp';
+import { classifyConnectionIssue, GrokAcpManager, inspectGrokBinary } from './grok-acp';
 import { permissionResolution, requiredString } from './ipc-validation';
 import { contentSecurityPolicy, isTrustedMainFrame } from './security';
 
@@ -222,9 +222,14 @@ function registerIpc(): void {
     assertTrustedSender(event);
     return inspectGrokBinary();
   });
-  ipcMain.handle('grok:connect', (event) => {
+  ipcMain.handle('grok:connect', async (event) => {
     assertTrustedSender(event);
-    return grok.connect();
+    try {
+      return await grok.connect();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '连接 Grok Build 失败。';
+      return { status: 'error' as const, detail, ...classifyConnectionIssue(detail) };
+    }
   });
   ipcMain.handle('grok:create-session', (event, cwd: unknown) => {
     assertTrustedSender(event);

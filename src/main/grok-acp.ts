@@ -9,6 +9,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import type { WebContents } from 'electron';
 import type {
   AcpSessionEvent,
+  ConnectionIssueCode,
   CreatedSession,
   GrokConnectionEvent,
   GrokStatus,
@@ -288,6 +289,8 @@ export async function inspectGrokBinary(): Promise<GrokStatus> {
       version: null,
       authenticated: null,
       detail: '未找到 Grok Build。请先安装官方 grok CLI。',
+      issueCode: 'binary_missing',
+      retryable: true,
     };
   }
 
@@ -301,7 +304,7 @@ export async function inspectGrokBinary(): Promise<GrokStatus> {
     });
     const version = `${stdout}${stderr}`.trim();
     return {
-      status: 'ready',
+      status: 'detected',
       binaryPath,
       version: version || '已安装',
       authenticated: null,
@@ -313,8 +316,48 @@ export async function inspectGrokBinary(): Promise<GrokStatus> {
       version: null,
       authenticated: null,
       detail: safeErrorDetail(error, '无法读取 Grok Build 版本。'),
+      issueCode: 'version_check_failed',
+      retryable: true,
     };
   }
+}
+
+export function classifyConnectionIssue(detail: string): {
+  issueCode: ConnectionIssueCode;
+  retryable: boolean;
+} {
+  const normalized = detail.toLowerCase();
+  if (normalized.includes('未找到 grok')) {
+    return { issueCode: 'binary_missing', retryable: true };
+  }
+  if (normalized.includes('身份验证') || normalized.includes('authenticate')) {
+    return {
+      issueCode: normalized.includes('尚未支持')
+        ? 'authentication_unsupported'
+        : 'authentication_failed',
+      retryable: true,
+    };
+  }
+  if (normalized.includes('协议版本不兼容')) {
+    return { issueCode: 'protocol_incompatible', retryable: false };
+  }
+  if (normalized.includes('无法解析的协议帧') || normalized.includes('协议帧')) {
+    return { issueCode: 'protocol_invalid', retryable: true };
+  }
+  if (normalized.includes('超时')) {
+    return { issueCode: 'timeout', retryable: true };
+  }
+  if (normalized.includes('通道') && normalized.includes('关闭')) {
+    return { issueCode: 'channel_closed', retryable: true };
+  }
+  if (
+    normalized.includes('子进程') ||
+    normalized.includes('已退出') ||
+    normalized.includes('spawn')
+  ) {
+    return { issueCode: 'process_failed', retryable: true };
+  }
+  return { issueCode: 'unknown', retryable: true };
 }
 
 export class GrokAcpManager {
@@ -440,7 +483,7 @@ export class GrokAcpManager {
 
   private async startConnection(generation: number): Promise<GrokConnectionEvent> {
     this.assertConnectionAttempt(generation);
-    this.connectionEvent({ status: 'checking', detail: '正在启动 Grok ACP…' });
+    this.connectionEvent({ status: 'connecting', detail: '正在启动 Grok ACP…' });
     const binaryPath = await resolveGrokBinary();
     if (!binaryPath) {
       throw new Error('未找到 Grok Build。请先安装官方 grok CLI。');
@@ -598,7 +641,9 @@ export class GrokAcpManager {
       if (ownsChild) this.connectionGeneration += 1;
       const detail = safeErrorDetail(error, '连接 Grok Build 失败。');
       await this.teardownCurrent(child, detail);
-      if (ownsChild && !this.shuttingDown) this.connectionEvent({ status: 'error', detail });
+      if (ownsChild && !this.shuttingDown) {
+        this.connectionEvent({ status: 'error', detail, ...classifyConnectionIssue(detail) });
+      }
       throw new Error(detail);
     }
   }
@@ -611,7 +656,9 @@ export class GrokAcpManager {
     if (this.process !== child) return;
     this.connectionGeneration += 1;
     await this.teardownCurrent(child, detail);
-    if (!this.shuttingDown) this.connectionEvent({ status, detail });
+    if (!this.shuttingDown) {
+      this.connectionEvent({ status, detail, ...classifyConnectionIssue(detail) });
+    }
   }
 
   private assertRegisteredWebContents(ownerWebContentsId: number): void {
@@ -647,7 +694,7 @@ export class GrokAcpManager {
       }
     }
     if (hadConnection && !this.shuttingDown) {
-      this.connectionEvent({ status: 'error', detail });
+      this.connectionEvent({ status: 'error', detail, ...classifyConnectionIssue(detail) });
     }
   }
 

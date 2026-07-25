@@ -14,7 +14,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isAllowedExternalUrl } from '../../../shared/url';
@@ -84,7 +84,7 @@ function ThoughtCard({ item }: { item: ThoughtItem }) {
   const [open, setOpen] = useState(false);
   return (
     <article className="thought-card">
-      <button type="button" onClick={() => setOpen((value) => !value)}>
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <Sparkles size={13} />
         <span>过程摘要</span>
         {item.streaming && (
@@ -113,7 +113,8 @@ function ToolCard({ item }: { item: ToolItem }) {
         type="button"
         className="tool-card__header"
         onClick={() => expandable && setOpen((value) => !value)}
-        aria-expanded={open}
+        aria-expanded={expandable ? open : undefined}
+        disabled={!expandable}
       >
         <span className="tool-card__icon">
           <ToolIcon kind={item.kind} />
@@ -253,7 +254,13 @@ function TimelineEntry({ item }: { item: TimelineItemType }) {
   }
 }
 
-export function Timeline({ session }: { session: WorkSession }) {
+export function Timeline({
+  session,
+  emptyState,
+}: {
+  session: WorkSession;
+  emptyState?: ReactNode;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -305,6 +312,7 @@ export function Timeline({ session }: { session: WorkSession }) {
       }}
     >
       <div className="conversation-canvas" ref={canvasRef}>
+        {session.timeline.length === 0 && session.status !== 'connecting' && emptyState}
         {session.demo && (
           <div className="preview-notice">
             <Bot size={14} />

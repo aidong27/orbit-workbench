@@ -1,5 +1,8 @@
 import type {
+  ConnectionIssueCode,
   ConnectionStatus,
+  GrokConnectionEvent,
+  GrokStatus,
   PermissionRequestEvent,
   ProjectSummary,
   SessionModeOption,
@@ -137,6 +140,14 @@ export interface AppState {
   activeSessionId: string | null;
   connectionStatus: ConnectionStatus;
   connectionDetail: string;
+  connectionAttemptId: number;
+  connectionIssueCode: ConnectionIssueCode | null;
+  connectionRetryable: boolean;
+  grokBinaryPath: string | null;
+  grokCliVersion: string | null;
+  grokAuthenticated: boolean | null;
+  grokAgentName: string | null;
+  grokAgentVersion: string | null;
   pendingPermissions: PermissionRequestEvent[];
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
@@ -191,7 +202,10 @@ export type AppAction =
       requestId: number;
       error: string;
     }
-  | { type: 'CONNECTION'; status: ConnectionStatus; detail?: string }
+  | { type: 'CONNECTION_ATTEMPT'; attemptId: number }
+  | { type: 'GROK_INSPECTED'; attemptId: number; result: GrokStatus }
+  | { type: 'CONNECTION_RESULT'; attemptId: number; result: GrokConnectionEvent }
+  | { type: 'CONNECTION_EVENT'; event: GrokConnectionEvent }
   | { type: 'PERMISSION_REQUEST'; request: PermissionRequestEvent }
   | { type: 'PERMISSION_CLEARED'; requestId: string }
   | { type: 'SIDEBAR_TOGGLED' }

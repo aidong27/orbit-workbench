@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, FolderGit2, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { AlertTriangle, Ban, Copy, FolderGit2, ShieldCheck, TerminalSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PermissionRequestEvent } from '../../../shared/types';
 import { compactJson } from '../lib/format';
@@ -16,6 +16,37 @@ interface PermissionDialogProps {
   remainingCount: number;
   submitting: boolean;
   onResolve: (optionId?: string, cancelled?: boolean) => void;
+}
+
+function permissionKindLabel(kind: string): string {
+  switch (kind) {
+    case 'allow_once':
+      return '仅允许这一次';
+    case 'allow_always':
+      return '持续允许同类操作，请谨慎';
+    case 'reject_once':
+      return '拒绝这一次';
+    case 'reject_always':
+      return '持续拒绝同类操作';
+    default:
+      return '由 Grok Build 提供的选项';
+  }
+}
+
+function toolRiskSummary(kind: string | null | undefined): string {
+  switch (kind) {
+    case 'delete':
+      return '此操作可能删除工作区中的文件。请逐项核对目标路径。';
+    case 'edit':
+    case 'move':
+      return '此操作会修改工作区内容。请核对文件和影响范围。';
+    case 'execute':
+      return '此操作会在本机执行命令。请核对命令、目录和参数。';
+    case 'fetch':
+      return '此操作可能访问网络。请确认目标地址和要发送的内容。';
+    default:
+      return '请确认路径、命令和影响范围符合你的预期。';
+  }
 }
 
 export function PermissionDialog({
@@ -123,11 +154,22 @@ export function PermissionDialog({
               <dd>{source.sessionTitle}</dd>
             </div>
           </dl>
-          {source.onShowSource && source.background && (
-            <button type="button" onClick={source.onShowSource} disabled={submitting}>
-              切换到来源会话
+          <div className="permission-source__actions">
+            <button
+              type="button"
+              onClick={() =>
+                void navigator.clipboard.writeText(source.projectPath).catch(() => undefined)
+              }
+              disabled={submitting}
+            >
+              <Copy size={13} /> 复制完整路径
             </button>
-          )}
+            {source.onShowSource && source.background && (
+              <button type="button" onClick={source.onShowSource} disabled={submitting}>
+                切换到来源会话
+              </button>
+            )}
+          </div>
         </div>
         {rawInput && (
           <div className="permission-command">
@@ -142,7 +184,7 @@ export function PermissionDialog({
               ? '来源无法验证，允许选项已禁用；请拒绝这次操作。'
               : source.background
                 ? '这是后台会话发出的请求。请先核对工作区、路径和影响范围。'
-                : '请确认路径、命令和影响范围符合你的预期。'}
+                : toolRiskSummary(request.toolCall.kind)}
           </span>
         </div>
         <div className="permission-options">
@@ -161,7 +203,7 @@ export function PermissionDialog({
               onClick={() => onResolve(option.optionId, false)}
             >
               <span>{option.name}</span>
-              <small>{option.kind}</small>
+              <small>{permissionKindLabel(option.kind)}</small>
             </button>
           ))}
           <button

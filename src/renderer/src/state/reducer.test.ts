@@ -50,6 +50,14 @@ function stateFixture(session = sessionFixture()): AppState {
     activeSessionId: session.id,
     connectionStatus: 'ready',
     connectionDetail: 'connected',
+    connectionAttemptId: 1,
+    connectionIssueCode: null,
+    connectionRetryable: false,
+    grokBinaryPath: '/usr/local/bin/grok',
+    grokCliVersion: 'grok 0.2.112',
+    grokAuthenticated: true,
+    grokAgentName: 'Grok Build',
+    grokAgentVersion: '0.2.112',
     pendingPermissions: [],
     sidebarCollapsed: false,
     inspectorOpen: true,
@@ -124,7 +132,10 @@ describe('Grok ACP 状态归一化', () => {
           ],
         }),
       ),
-      { type: 'CONNECTION', status: 'error', detail: 'ACP exited' },
+      {
+        type: 'CONNECTION_EVENT',
+        event: { status: 'error', detail: 'ACP exited', issueCode: 'process_failed' },
+      },
     );
 
     expect(disconnected.sessions[0]).toMatchObject({
@@ -132,6 +143,32 @@ describe('Grok ACP 状态归一化', () => {
       continuity: 'local-history-only',
       confirmedModeId: null,
       status: 'failed',
+    });
+  });
+
+  it('treats a detected CLI as preflight only and ignores stale connection attempts', () => {
+    const checking = reducer(stateFixture(), { type: 'CONNECTION_ATTEMPT', attemptId: 2 });
+    const stale = reducer(checking, {
+      type: 'CONNECTION_RESULT',
+      attemptId: 1,
+      result: { status: 'ready', detail: '旧连接成功' },
+    });
+    const inspected = reducer(stale, {
+      type: 'GROK_INSPECTED',
+      attemptId: 2,
+      result: {
+        status: 'detected',
+        binaryPath: '/Users/test/.grok/bin/grok',
+        version: 'grok 0.2.112',
+        authenticated: null,
+      },
+    });
+
+    expect(stale.connectionStatus).toBe('checking');
+    expect(inspected).toMatchObject({
+      connectionStatus: 'detected',
+      grokBinaryPath: '/Users/test/.grok/bin/grok',
+      grokCliVersion: 'grok 0.2.112',
     });
   });
 

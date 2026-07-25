@@ -2,7 +2,7 @@
 
 # 安装与故障排查 / Installation and Troubleshooting
 
-本指南适用于星轨工作台 `0.2.0-alpha.2`：Windows x64 与 macOS arm64。
+本指南适用于星轨工作台 `0.2.0-alpha.3`：Windows x64 与 macOS arm64。
 
 > [!WARNING]
 > 当前 Alpha 包尚未进行 Windows 代码签名或 Apple Developer ID 公证。请只从 `aidong27/orbit-workbench` 的 Releases 获取文件并核对校验值。不要从网盘、聊天附件或第三方镜像运行安装包。
@@ -25,7 +25,7 @@ grok login
 下载：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Setup.exe
+Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Setup.exe
 ```
 
 安装器允许选择安装目录，并可创建桌面与开始菜单快捷方式。
@@ -35,7 +35,7 @@ Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Setup.exe
 下载：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Portable.exe
+Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Portable.exe
 ```
 
 便携版无需安装应用本身，但仍需要本机已经存在可执行的 `grok.exe`。
@@ -52,7 +52,7 @@ Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Portable.exe
 
 ```powershell
 $env:GROK_BINARY = 'C:\完整\路径\grok.exe'
-& '.\Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Portable.exe'
+& '.\Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Portable.exe'
 ```
 
 持久环境变量设置后需要重新启动应用，使新进程读取到更新后的值。
@@ -62,8 +62,8 @@ $env:GROK_BINARY = 'C:\完整\路径\grok.exe'
 下载 DMG 或 ZIP：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.2-macOS-arm64.dmg
-Orbit-Workbench-0.2.0-alpha.2-macOS-arm64.zip
+Orbit-Workbench-0.2.0-alpha.3-macOS-arm64.dmg
+Orbit-Workbench-0.2.0-alpha.3-macOS-arm64.zip
 ```
 
 DMG：打开后将“星轨工作台”拖到 Applications。ZIP：解压后将应用移动到 Applications。
@@ -83,19 +83,19 @@ CLI 检测顺序：
 Windows PowerShell：
 
 ```powershell
-Get-FileHash '.\Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Setup.exe' -Algorithm SHA256
+Get-FileHash '.\Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Setup.exe' -Algorithm SHA256
 ```
 
 Windows CMD：
 
 ```bat
-certutil -hashfile Orbit-Workbench-0.2.0-alpha.2-Windows-x64-Setup.exe SHA256
+certutil -hashfile Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Setup.exe SHA256
 ```
 
 macOS：
 
 ```bash
-shasum -a 256 Orbit-Workbench-0.2.0-alpha.2-macOS-arm64.dmg
+shasum -a 256 Orbit-Workbench-0.2.0-alpha.3-macOS-arm64.dmg
 ```
 
 如果校验值不一致，请删除文件并提交不包含该文件内容的安全报告。

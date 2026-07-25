@@ -12,6 +12,36 @@
 - 自动更新与可验证的发布来源。
 - Linux 支持评估。
 
+## [0.2.0-alpha.3] - 2026-07-25
+
+### Added
+
+- 首次连接引导，按 CLI 检测、ACP 连接、工作区选择和任务起步展示真实进度。
+- 可重试的连接中心，展示 CLI 路径/版本、Agent 版本、故障代码和可复制的脱敏诊断。
+- 空会话中文安全任务模板；模板只写入会话草稿，不会自动发送。
+- 独立、可测试的 renderer 连接控制器和连接状态回归测试。
+- v3 本地状态信封，支持合法空状态与 v2/v1 事务式迁移。
+
+### Changed
+
+- 检测到 CLI 改为 `detected` 预检状态；只有 ACP 初始化和认证成功才进入 `ready`。
+- 未连接时 Composer 保留可编辑草稿，但禁用发送与模式切换，并就地提供恢复动作。
+- 顶部与侧栏的 Grok 状态改为可操作的连接中心入口。
+- 基础字号提升到 15px，信息性文字不低于 11px，并提高文本/占位符对比度。
+- 1180px 以下的右侧检查器改为覆盖抽屉；命令面板和检查器补充键盘导航语义。
+- 工作区、Git 和权限错误改为非阻塞应用通知。
+
+### Fixed
+
+- 兼容 Grok Build 0.2.112 的 `_x.ai/*` 合法扩展通知，不再误报“无法解析的协议帧”。
+- 主进程连接失败通过结构化结果返回，避免界面暴露 Electron `Error invoking remote method` 包装文案。
+- 删除最后工作区或首次空状态后，旧 v2 数据不再在重启时复活。
+
+### Security
+
+- `_x.ai/*` 通知仅在 JSON-RPC envelope、method 和 params 均满足严格边界时被忽略；带 ID request 不会被吞掉。
+- 现有 4 MiB 单帧限制、未知非 vendor 通知拒绝和固定脱敏错误保持不变。
+
 ## [0.2.0-alpha.2] - 2026-07-21
 
 ### Added
@@ -102,7 +132,8 @@
 - 界面层不读取或保存 xAI API 密钥；CLI 子进程按应用启动环境继承变量。
 - 内容安全策略限制脚本、图片和网络连接来源；持久化历史会裁剪并移除工具载荷。
 
-[Unreleased]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.2...HEAD
+[Unreleased]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.3...HEAD
+[0.2.0-alpha.3]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.2...v0.2.0-alpha.3
 [0.2.0-alpha.2]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.1...v0.2.0-alpha.2
 [0.2.0-alpha.1]: https://github.com/aidong27/orbit-workbench/compare/v0.1.0-alpha.1...v0.2.0-alpha.1
 [0.1.0-alpha.1]: https://github.com/aidong27/orbit-workbench/releases/tag/v0.1.0-alpha.1

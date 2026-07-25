@@ -68,6 +68,7 @@ describe('PermissionDialog', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('/workspaces/payment-service');
     expect(screen.getByRole('dialog')).toHaveTextContent('重构支付回调逻辑');
     expect(screen.getByRole('dialog')).toHaveTextContent('这是后台会话发出的请求');
+    expect(screen.getByRole('dialog')).toHaveTextContent('持续允许同类操作，请谨慎');
   });
 
   it('lets the user switch to the background source session before deciding', async () => {

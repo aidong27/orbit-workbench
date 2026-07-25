@@ -212,6 +212,60 @@ function failTurn(session: WorkSession, detail: string): WorkSession {
   return { ...session, timeline, status: 'failed', updatedAt: Date.now() };
 }
 
+function applyConnectionEvent(
+  state: AppState,
+  event: {
+    status: AppState['connectionStatus'];
+    detail?: string;
+    agentName?: string;
+    agentVersion?: string;
+    issueCode?: AppState['connectionIssueCode'];
+    retryable?: boolean;
+  },
+): AppState {
+  const disconnected = event.status === 'offline' || event.status === 'error';
+  return {
+    ...state,
+    connectionStatus: event.status,
+    connectionDetail: event.detail ?? state.connectionDetail,
+    connectionIssueCode:
+      event.status === 'ready' || event.status === 'checking' || event.status === 'connecting'
+        ? null
+        : (event.issueCode ?? state.connectionIssueCode),
+    connectionRetryable:
+      event.status === 'ready'
+        ? false
+        : (event.retryable ?? (disconnected ? true : state.connectionRetryable)),
+    grokAgentName: event.agentName ?? state.grokAgentName,
+    grokAgentVersion: event.agentVersion ?? state.grokAgentVersion,
+    sessions: disconnected
+      ? state.sessions.map((session) => {
+          if (session.demo) return session;
+          const wasActive =
+            session.status === 'working' ||
+            session.status === 'connecting' ||
+            session.status === 'awaiting_permission' ||
+            session.status === 'cancelling';
+          return {
+            ...session,
+            acpSessionId: null,
+            continuity: session.timeline.length > 0 ? 'local-history-only' : 'fresh',
+            confirmedModeId: null,
+            availableModes: [],
+            availableCommands: [],
+            availableCommandsTruncated: false,
+            configOptions: [],
+            configOptionsTruncated: false,
+            modeSwitchStatus: 'idle',
+            modeSwitchError: null,
+            status: wasActive ? ('failed' as const) : session.status,
+          };
+        })
+      : state.sessions,
+    pendingPermissions: disconnected ? [] : state.pendingPermissions,
+  };
+}
+
 export function applyAcpEvent(session: WorkSession, event: UiAcpEvent): WorkSession {
   switch (event.type) {
     case 'message.chunk':
@@ -452,39 +506,36 @@ export function reducer(state: AppState, action: AppAction): AppState {
               updatedAt: Date.now(),
             },
       );
-    case 'CONNECTION': {
-      const disconnected = action.status === 'offline' || action.status === 'error';
+    case 'CONNECTION_ATTEMPT':
       return {
         ...state,
-        connectionStatus: action.status,
-        connectionDetail: action.detail ?? state.connectionDetail,
-        sessions: disconnected
-          ? state.sessions.map((session) => {
-              if (session.demo) return session;
-              const wasActive =
-                session.status === 'working' ||
-                session.status === 'connecting' ||
-                session.status === 'awaiting_permission' ||
-                session.status === 'cancelling';
-              return {
-                ...session,
-                acpSessionId: null,
-                continuity: session.timeline.length > 0 ? 'local-history-only' : 'fresh',
-                confirmedModeId: null,
-                availableModes: [],
-                availableCommands: [],
-                availableCommandsTruncated: false,
-                configOptions: [],
-                configOptionsTruncated: false,
-                modeSwitchStatus: 'idle',
-                modeSwitchError: null,
-                status: wasActive ? ('failed' as const) : session.status,
-              };
-            })
-          : state.sessions,
-        pendingPermissions: disconnected ? [] : state.pendingPermissions,
+        connectionAttemptId: action.attemptId,
+        connectionStatus: 'checking',
+        connectionDetail: '正在检测本机 Grok Build…',
+        connectionIssueCode: null,
+        connectionRetryable: false,
       };
-    }
+    case 'GROK_INSPECTED':
+      if (action.attemptId !== state.connectionAttemptId) return state;
+      return {
+        ...state,
+        connectionStatus: action.result.status,
+        connectionDetail:
+          action.result.detail ??
+          (action.result.status === 'detected'
+            ? '已检测到 Grok Build，正在建立 ACP 连接…'
+            : state.connectionDetail),
+        connectionIssueCode: action.result.issueCode ?? null,
+        connectionRetryable: action.result.retryable ?? action.result.status !== 'detected',
+        grokBinaryPath: action.result.binaryPath,
+        grokCliVersion: action.result.version,
+        grokAuthenticated: action.result.authenticated,
+      };
+    case 'CONNECTION_RESULT':
+      if (action.attemptId !== state.connectionAttemptId) return state;
+      return applyConnectionEvent(state, action.result);
+    case 'CONNECTION_EVENT':
+      return applyConnectionEvent(state, action.event);
     case 'PERMISSION_REQUEST': {
       if (
         state.pendingPermissions.some((request) => request.requestId === action.request.requestId)

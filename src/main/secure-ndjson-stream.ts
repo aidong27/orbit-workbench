@@ -1,6 +1,8 @@
 import type { AnyMessage, Stream } from '@agentclientprotocol/sdk';
 
 const INVALID_FRAME_MESSAGE = 'Grok ACP 返回了无法解析的协议帧。';
+const GROK_VENDOR_NOTIFICATION_PREFIX = '_x.ai/';
+const MAX_VENDOR_METHOD_CHARACTERS = 256;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +92,22 @@ function isSafeNotification(message: JsonRecord): boolean {
   );
 }
 
+function isSafeIgnoredVendorNotification(message: JsonRecord): boolean {
+  if (
+    message.jsonrpc !== '2.0' ||
+    typeof message.method !== 'string' ||
+    message.method.length <= GROK_VENDOR_NOTIFICATION_PREFIX.length ||
+    message.method.length > MAX_VENDOR_METHOD_CHARACTERS ||
+    !message.method.startsWith(GROK_VENDOR_NOTIFICATION_PREFIX) ||
+    Object.hasOwn(message, 'id') ||
+    Object.hasOwn(message, 'result') ||
+    Object.hasOwn(message, 'error')
+  ) {
+    return false;
+  }
+  return isRecord(message.params);
+}
+
 function isJsonRpcMessage(value: unknown): value is AnyMessage {
   if (!isRecord(value) || value.jsonrpc !== '2.0') return false;
   if ('method' in value) {
@@ -109,9 +127,12 @@ function isJsonRpcMessage(value: unknown): value is AnyMessage {
   );
 }
 
-function parseMessage(line: string): AnyMessage {
+function parseMessage(line: string): AnyMessage | null {
   try {
     const value = JSON.parse(line) as unknown;
+    if (isRecord(value) && isSafeIgnoredVendorNotification(value)) {
+      return null;
+    }
     if (!isJsonRpcMessage(value)) {
       throw new Error(INVALID_FRAME_MESSAGE);
     }
@@ -137,7 +158,9 @@ export function secureNdjsonStream(
       let buffer = '';
       const emitLine = (line: string): void => {
         const trimmed = line.trim();
-        if (trimmed) controller.enqueue(parseMessage(trimmed));
+        if (!trimmed) return;
+        const message = parseMessage(trimmed);
+        if (message) controller.enqueue(message);
       };
       try {
         while (!cancelled) {

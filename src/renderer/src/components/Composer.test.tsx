@@ -53,12 +53,16 @@ function renderComposer(
     project,
     session,
     value: '执行刚才的方案',
+    connectionStatus: 'ready',
+    connectionIssueCode: null,
+    connectionDetail: '已连接',
     onValueChange: vi.fn(),
     onSend: vi.fn(),
     onStop: vi.fn(),
     onModeChange: vi.fn(),
     onNewSession: vi.fn(),
-    onOpenWorkspace: vi.fn(),
+    onRetryConnection: vi.fn(),
+    onOpenConnectionCenter: vi.fn(),
     ...overrides,
   };
   return { ...render(<Composer {...props} />), props };
@@ -120,6 +124,18 @@ describe('Composer', () => {
     expect(onModeChange).not.toHaveBeenCalled();
   });
 
+  it('closes the mode menu with Escape and returns focus to its trigger', async () => {
+    const user = userEvent.setup();
+    renderComposer(makeSession());
+
+    const modeButton = screen.getByRole('button', { name: /计划/ });
+    await user.click(modeButton);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(modeButton).toHaveFocus();
+  });
+
   it('does not send while a mode switch is awaiting agent confirmation', () => {
     const onSend = vi.fn();
     renderComposer(makeSession({ modeSwitchStatus: 'switching', requestedModeId: 'normal' }), {
@@ -134,6 +150,26 @@ describe('Composer', () => {
       keyCode: 13,
       isComposing: false,
     });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('keeps the draft editable but blocks sending while Grok is disconnected', async () => {
+    const onSend = vi.fn();
+    const onRetryConnection = vi.fn();
+    const user = userEvent.setup();
+    renderComposer(makeSession(), {
+      connectionStatus: 'error',
+      connectionIssueCode: 'timeout',
+      connectionDetail: '连接 Grok ACP 超时。',
+      onSend,
+      onRetryConnection,
+    });
+
+    expect(screen.getByRole('textbox', { name: '任务输入' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '发送任务' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('草稿会保留');
+    await user.click(screen.getByRole('button', { name: /重试/ }));
+    expect(onRetryConnection).toHaveBeenCalledOnce();
     expect(onSend).not.toHaveBeenCalled();
   });
 });

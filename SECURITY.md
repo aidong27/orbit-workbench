@@ -51,7 +51,7 @@ Alpha 版本仍在快速变化中，不应被视为已经过正式安全认证�
 
 ## 安装包签名
 
-`0.2.0-alpha.2` 的 Windows 和 macOS 包尚未进行商业代码签名或 Apple 公证，macOS hardened runtime 也尚未启用。签名缺失会产生系统来源提示，但不应被当作绕过其他安全检查的理由。只从本仓库 Releases 获取产物，并核对发布页校验值；无法验证来源时请从源码构建。
+`0.2.0-alpha.3` 的 Windows 和 macOS 包尚未进行商业代码签名或 Apple 公证，macOS hardened runtime 也尚未启用。签名缺失会产生系统来源提示，但不应被当作绕过其他安全检查的理由。只从本仓库 Releases 获取产物，并核对发布页校验值；无法验证来源时请从源码构建。
 
 ## Disclosure in English
 

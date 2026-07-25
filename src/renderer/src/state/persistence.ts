@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { AppState, TimelineItem, WorkSession, WorkspaceProject } from './model';
 import { reconcilePlanEntries } from './plan';
 
-const PERSISTED_STATE_KEY = 'orbit-workbench-state-v2';
+const PERSISTED_STATE_KEY = 'orbit-workbench-state-v3';
+const V2_STATE_KEY = 'orbit-workbench-state-v2';
 const LEGACY_STATE_KEY = 'orbit-workbench-state-v1';
 const MAX_PERSISTED_SESSIONS = 40;
 const MAX_PERSISTED_TIMELINE_ITEMS = 160;
@@ -131,7 +132,13 @@ const persistedDataSchema = z.object({
   inspectorTab: z.enum(['changes', 'plan', 'tools', 'context']).optional(),
 });
 
-const persistedEnvelopeSchema = z.object({
+const persistedEnvelopeV3Schema = z.object({
+  schemaVersion: z.literal(3),
+  savedAt: z.number().finite(),
+  data: persistedDataSchema,
+});
+
+const persistedEnvelopeV2Schema = z.object({
   schemaVersion: z.literal(2),
   savedAt: z.number().finite(),
   data: persistedDataSchema,
@@ -236,8 +243,6 @@ function normalizePersistedState(fallback: AppState, value: unknown): AppState |
   const sessions = parsed.data.sessions
     .map((session) => parseSession(session, projectIds))
     .filter((session): session is WorkSession => session !== null);
-  if (projects.length === 0) return null;
-
   const requestedProjectId = parsed.data.activeProjectId;
   const activeProjectId =
     requestedProjectId && projectIds.has(requestedProjectId)
@@ -278,12 +283,27 @@ export function loadState(fallback: AppState): AppState {
   try {
     const currentRaw = localStorage.getItem(PERSISTED_STATE_KEY);
     if (currentRaw) {
-      const envelope = persistedEnvelopeSchema.safeParse(parseJson(currentRaw));
+      const envelope = persistedEnvelopeV3Schema.safeParse(parseJson(currentRaw));
       if (envelope.success) return rehydrateState(fallback, envelope.data.data);
       return fallback;
     }
+
+    const v2Raw = localStorage.getItem(V2_STATE_KEY);
+    if (v2Raw) {
+      const envelope = persistedEnvelopeV2Schema.safeParse(parseJson(v2Raw));
+      if (!envelope.success) return fallback;
+      const migrated = normalizePersistedState(fallback, envelope.data.data);
+      if (!migrated) return fallback;
+      saveState(migrated);
+      return migrated;
+    }
+
     const legacyRaw = localStorage.getItem(LEGACY_STATE_KEY);
-    return legacyRaw ? rehydrateState(fallback, parseJson(legacyRaw)) : fallback;
+    if (!legacyRaw) return fallback;
+    const migrated = normalizePersistedState(fallback, parseJson(legacyRaw));
+    if (!migrated) return fallback;
+    saveState(migrated);
+    return migrated;
   } catch {
     return fallback;
   }
@@ -333,16 +353,8 @@ function boundedTimeline(timeline: TimelineItem[]): TimelineItem[] {
   return selected.reverse();
 }
 
-export function saveState(state: AppState): void {
+export function saveState(state: AppState): boolean {
   const projects = state.projects.filter((project) => !project.demo);
-  if (projects.length === 0) {
-    try {
-      localStorage.removeItem(LEGACY_STATE_KEY);
-    } catch {
-      // Storage cleanup is best effort and must not interrupt the UI.
-    }
-    return;
-  }
   const projectIds = new Set(projects.map((project) => project.id));
   const activeSession = state.sessions.find(
     (session) => session.id === state.activeSessionId && !session.demo,
@@ -364,7 +376,7 @@ export function saveState(state: AppState): void {
       requestedModeId: session.requestedModeId,
     }));
   const envelope = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     savedAt: Date.now(),
     data: {
       projects,
@@ -383,14 +395,18 @@ export function saveState(state: AppState): void {
   };
   try {
     localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(envelope));
+    localStorage.removeItem(V2_STATE_KEY);
     localStorage.removeItem(LEGACY_STATE_KEY);
+    return true;
   } catch {
     // A full or disabled localStorage must never interrupt an active ACP stream.
+    return false;
   }
 }
 
 export const persistenceTestHelpers = {
   PERSISTED_STATE_KEY,
+  V2_STATE_KEY,
   LEGACY_STATE_KEY,
   normalizePersistedState,
 };

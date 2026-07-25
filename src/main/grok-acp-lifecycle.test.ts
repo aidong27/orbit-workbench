@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { permissionOutcome, settlesWithin } from './grok-acp';
+import { classifyConnectionIssue, permissionOutcome, settlesWithin } from './grok-acp';
 
 describe('Grok ACP lifecycle helpers', () => {
   afterEach(() => {
@@ -30,5 +30,20 @@ describe('Grok ACP lifecycle helpers', () => {
         optionId: 'ui-option-1',
       }),
     ).toEqual({ outcome: { outcome: 'selected', optionId: originalOptionId } });
+  });
+
+  it('classifies actionable connection failures without exposing raw protocol data', () => {
+    expect(classifyConnectionIssue('Grok 身份验证失败。')).toEqual({
+      issueCode: 'authentication_failed',
+      retryable: true,
+    });
+    expect(classifyConnectionIssue('Grok ACP 协议版本不兼容（客户端 1，代理 2）。')).toEqual({
+      issueCode: 'protocol_incompatible',
+      retryable: false,
+    });
+    expect(classifyConnectionIssue('连接 Grok ACP 超时。')).toEqual({
+      issueCode: 'timeout',
+      retryable: true,
+    });
   });
 });

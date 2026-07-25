@@ -1,6 +1,17 @@
-import { ChevronDown, CircleStop, CornerDownLeft, Send, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  ChevronDown,
+  CircleAlert,
+  CircleStop,
+  RefreshCw,
+  Send,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { ConnectionIssueCode, ConnectionStatus } from '../../../shared/types';
 import { shouldSubmitComposerKey } from '../lib/composer-input';
+import { connectionView } from '../lib/connection';
 import { modeLabel } from '../lib/format';
 import { sessionBlocksInput, type WorkSession, type WorkspaceProject } from '../state/model';
 
@@ -8,36 +19,57 @@ interface ComposerProps {
   project: WorkspaceProject | null;
   session: WorkSession | null;
   value: string;
+  connectionStatus: ConnectionStatus;
+  connectionIssueCode: ConnectionIssueCode | null;
+  connectionDetail: string;
   onValueChange: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onModeChange: (modeId: string) => void;
   onNewSession: () => void;
-  onOpenWorkspace: () => void;
+  onRetryConnection: () => void;
+  onOpenConnectionCenter: () => void;
 }
 
 export function Composer({
   project,
   session,
   value,
+  connectionStatus,
+  connectionIssueCode,
+  connectionDetail,
   onValueChange,
   onSend,
   onStop,
   onModeChange,
   onNewSession,
-  onOpenWorkspace,
+  onRetryConnection,
+  onOpenConnectionCenter,
 }: ComposerProps) {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modeRootRef = useRef<HTMLDivElement>(null);
+  const modeButtonRef = useRef<HTMLButtonElement>(null);
   const isWorking = session ? sessionBlocksInput(session.status) : false;
+  const connected = connectionStatus === 'ready';
+  const connectionBusy =
+    connectionStatus === 'checking' ||
+    connectionStatus === 'detected' ||
+    connectionStatus === 'connecting';
+  const connection = connectionView(connectionStatus, connectionIssueCode);
   const isHistoryOnly = session?.continuity === 'local-history-only';
   const modeDisabled =
-    isWorking || isHistoryOnly || session?.modeSwitchStatus === 'switching' || !session;
+    !connected ||
+    isWorking ||
+    isHistoryOnly ||
+    session?.modeSwitchStatus === 'switching' ||
+    !session;
   const canStop = Boolean(session?.acpSessionId && isWorking);
   const canSend = Boolean(
     project &&
       !project.demo &&
       session &&
+      connected &&
       !isHistoryOnly &&
       value.trim() &&
       !isWorking &&
@@ -52,11 +84,29 @@ export function Composer({
         ? modeLabel(session.confirmedModeId)
         : session?.requestedModeId
           ? `${modeLabel(session.requestedModeId)}（未确认）`
-          : '跟随 Grok（待连接确认）';
+          : '跟随 Grok（首条任务时确认）';
 
   useEffect(() => {
     if (activeSessionId) textareaRef.current?.focus();
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!modeRootRef.current?.contains(event.target as Node)) setModeMenuOpen(false);
+    };
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setModeMenuOpen(false);
+      modeButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [modeMenuOpen]);
 
   const submit = (): void => {
     const prompt = value.trim();
@@ -79,20 +129,7 @@ export function Composer({
   };
 
   if (!project || project.demo) {
-    return (
-      <div className="composer-shell composer-shell--onboarding">
-        <button type="button" className="open-workspace-cta" onClick={onOpenWorkspace}>
-          <span className="open-workspace-cta__icon">
-            <Sparkles size={17} />
-          </span>
-          <span>
-            <strong>打开本地工作区，开始真实任务</strong>
-            <small>会通过 ACP 连接本机 Grok Build；权限请求会在界面中确认</small>
-          </span>
-          <CornerDownLeft size={15} />
-        </button>
-      </div>
-    );
+    return null;
   }
 
   if (isHistoryOnly) {
@@ -114,6 +151,23 @@ export function Composer({
 
   return (
     <div className="composer-shell">
+      {!connected && (
+        <div className="notice notice--warning composer-connection-notice" role="status">
+          <CircleAlert size={16} />
+          <span>
+            <strong>{connection.title}</strong>
+            <small>{connectionDetail || connection.summary} 草稿会保留，但暂时不能发送。</small>
+          </span>
+          <div className="notice-actions">
+            <button type="button" onClick={onRetryConnection} disabled={connectionBusy}>
+              <RefreshCw size={14} /> {connectionBusy ? '连接中…' : '重试'}
+            </button>
+            <button type="button" onClick={onOpenConnectionCenter}>
+              <Settings2 size={14} /> 诊断
+            </button>
+          </div>
+        </div>
+      )}
       <div className={`composer ${isWorking ? 'composer--working' : ''}`}>
         <textarea
           ref={textareaRef}
@@ -121,24 +175,31 @@ export function Composer({
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={onKeyDown}
           rows={1}
-          placeholder={`在 ${project.name} 中交给 Grok 一个任务…`}
+          placeholder={
+            connected
+              ? `在 ${project.name} 中交给 Grok 一个任务…`
+              : '可以先写下任务；连接成功后再发送…'
+          }
           aria-label="任务输入"
         />
         <div className="composer__toolbar">
           <div className="composer__tools">
-            <div className="mode-select">
+            <div className="mode-select" ref={modeRootRef}>
               <button
+                ref={modeButtonRef}
                 type="button"
                 onClick={() => setModeMenuOpen((open) => !open)}
                 disabled={modeDisabled}
                 aria-busy={session?.modeSwitchStatus === 'switching'}
+                aria-expanded={modeMenuOpen}
+                aria-haspopup="menu"
               >
                 <Sparkles size={13} />
                 {modeButtonLabel}
                 <ChevronDown size={12} />
               </button>
               {modeMenuOpen && (
-                <div className="mode-menu">
+                <div className="mode-menu" role="menu">
                   {(session?.availableModes.length
                     ? session.availableModes
                     : [
@@ -150,6 +211,8 @@ export function Composer({
                       type="button"
                       key={mode.id}
                       className={mode.id === selectedModeId ? 'is-active' : ''}
+                      role="menuitemradio"
+                      aria-checked={mode.id === selectedModeId}
                       onClick={() => {
                         setModeMenuOpen(false);
                         onModeChange(mode.id);
@@ -193,7 +256,9 @@ export function Composer({
         </div>
       </div>
       <div className="composer-hint">
-        {session?.modeSwitchStatus === 'failed' ? (
+        {!connected ? (
+          <span className="composer-hint__error">Grok 尚未连接 · 当前内容仅保存在草稿中</span>
+        ) : session?.modeSwitchStatus === 'failed' ? (
           <span className="composer-hint__error">模式未切换：{session.modeSwitchError}</span>
         ) : (
           <span>

@@ -11,6 +11,7 @@ import {
   TerminalSquare,
   Wrench,
 } from 'lucide-react';
+import type { ConnectionStatus } from '../../../shared/types';
 import { compactJson, statusLabel, toolKindLabel } from '../lib/format';
 import type {
   InspectorTab,
@@ -25,7 +26,7 @@ interface InspectorProps {
   session: WorkSession | null;
   appVersion: string;
   activeTab: InspectorTab;
-  connectionStatus: string;
+  connectionStatus: ConnectionStatus;
   connectionDetail: string;
   onTabChange: (tab: InspectorTab) => void;
   onRefreshProject: () => void;
@@ -181,7 +182,7 @@ function ContextPanel({
   connectionDetail,
 }: {
   session: WorkSession | null;
-  connectionStatus: string;
+  connectionStatus: ConnectionStatus;
   connectionDetail: string;
 }) {
   const usage = session?.usage as { used?: number; size?: number; total?: number } | undefined;
@@ -265,8 +266,8 @@ export function Inspector({
 }: InspectorProps) {
   return (
     <aside className="inspector">
-      <div className="inspector__tabs">
-        {tabs.map((tab) => {
+      <div className="inspector__tabs" role="tablist" aria-label="检查器">
+        {tabs.map((tab, index) => {
           const Icon = tab.icon;
           return (
             <button
@@ -274,6 +275,22 @@ export function Inspector({
               key={tab.id}
               className={tab.id === activeTab ? 'is-active' : ''}
               onClick={() => onTabChange(tab.id)}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const offset = event.key === 'ArrowRight' ? 1 : -1;
+                const nextIndex = (index + offset + tabs.length) % tabs.length;
+                const next = tabs[nextIndex];
+                if (!next) return;
+                onTabChange(next.id);
+                const buttons = event.currentTarget.parentElement?.querySelectorAll('button');
+                buttons?.[nextIndex]?.focus();
+              }}
+              role="tab"
+              id={`inspector-tab-${tab.id}`}
+              aria-controls="inspector-panel"
+              aria-selected={tab.id === activeTab}
+              tabIndex={tab.id === activeTab ? 0 : -1}
             >
               <Icon size={14} />
               <span>{tab.label}</span>
@@ -281,7 +298,12 @@ export function Inspector({
           );
         })}
       </div>
-      <div className="inspector__body">
+      <div
+        className="inspector__body"
+        role="tabpanel"
+        id="inspector-panel"
+        aria-labelledby={`inspector-tab-${activeTab}`}
+      >
         {activeTab === 'changes' && <ChangesPanel project={project} onRefresh={onRefreshProject} />}
         {activeTab === 'plan' && <PlanPanel session={session} />}
         {activeTab === 'tools' && <ToolsPanel session={session} />}
