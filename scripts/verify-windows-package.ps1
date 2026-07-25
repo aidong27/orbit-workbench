@@ -68,6 +68,17 @@ function Assert-NonEmptyFile([string]$Path, [string]$Description) {
   Assert-True ($item.Length -gt 0) "$Description is empty: $Path"
 }
 
+function Get-OptionalPropertyValue([object]$InputObject, [string]$Name) {
+  if ($null -eq $InputObject) {
+    return $null
+  }
+  $property = $InputObject.PSObject.Properties[$Name]
+  if ($null -eq $property) {
+    return $null
+  }
+  return $property.Value
+}
+
 function Get-PeMachine([string]$Path) {
   Assert-NonEmptyFile $Path "PE image"
   $stream = [System.IO.File]::Open(
@@ -358,7 +369,9 @@ function Get-UninstallEntries {
   @(
     foreach ($registryPath in $registryPaths) {
       Get-ItemProperty $registryPath -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -eq $expectedProductName }
+        Where-Object {
+          (Get-OptionalPropertyValue $_ "DisplayName") -eq $expectedProductName
+        }
     }
   )
 }
@@ -367,11 +380,12 @@ function Get-UninstallEntriesForInstall([string]$InstallDirectory) {
   $normalizedExpected = [System.IO.Path]::GetFullPath($InstallDirectory).TrimEnd("\", "/")
   @(
     Get-UninstallEntries | Where-Object {
-      if ([string]::IsNullOrWhiteSpace([string]$_.InstallLocation)) {
+      $installLocation = [string](Get-OptionalPropertyValue $_ "InstallLocation")
+      if ([string]::IsNullOrWhiteSpace($installLocation)) {
         return $false
       }
       try {
-        $normalizedActual = [System.IO.Path]::GetFullPath([string]$_.InstallLocation).TrimEnd("\", "/")
+        $normalizedActual = [System.IO.Path]::GetFullPath($installLocation).TrimEnd("\", "/")
         return $normalizedActual.Equals(
           $normalizedExpected,
           [System.StringComparison]::OrdinalIgnoreCase
@@ -386,8 +400,12 @@ function Get-UninstallEntriesForInstall([string]$InstallDirectory) {
 function Get-UninstallKeyPaths {
   @(
     Get-UninstallEntries |
-      Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.PSPath) } |
-      ForEach-Object { ([string]$_.PSPath).ToLowerInvariant() }
+      ForEach-Object {
+        $keyPath = [string](Get-OptionalPropertyValue $_ "PSPath")
+        if (-not [string]::IsNullOrWhiteSpace($keyPath)) {
+          $keyPath.ToLowerInvariant()
+        }
+      }
   ) | Sort-Object -Unique
 }
 
@@ -543,9 +561,10 @@ function Remove-TestInstallation {
   }
 
   foreach ($entry in @(Get-UninstallEntriesForInstall $installDirectory)) {
-    if (-not [string]::IsNullOrWhiteSpace([string]$entry.PSPath)) {
+    $entryKeyPath = [string](Get-OptionalPropertyValue $entry "PSPath")
+    if (-not [string]::IsNullOrWhiteSpace($entryKeyPath)) {
       try {
-        Remove-Item -LiteralPath ([string]$entry.PSPath) -Recurse -Force
+        Remove-Item -LiteralPath $entryKeyPath -Recurse -Force
       } catch {
         Write-Warning "Could not remove the exact test uninstall key: $($_.Exception.Message)"
       }
@@ -687,17 +706,28 @@ try {
     "Expected one uninstall entry for '$installDirectory', found $($uninstallEntries.Count)."
   )
   $uninstallEntry = $uninstallEntries[0]
+  $uninstallDisplayVersion = [string](Get-OptionalPropertyValue $uninstallEntry "DisplayVersion")
+  $uninstallKeyPath = [string](Get-OptionalPropertyValue $uninstallEntry "PSPath")
+  $uninstallDisplayIcon = [string](Get-OptionalPropertyValue $uninstallEntry "DisplayIcon")
+  $registeredUninstallCommand = [string](
+    Get-OptionalPropertyValue $uninstallEntry "UninstallString"
+  )
+  $registeredQuietUninstallCommand = [string](
+    Get-OptionalPropertyValue $uninstallEntry "QuietUninstallString"
+  )
   Assert-True (
-    $uninstallEntry.DisplayVersion -eq $ExpectedVersion
-  ) "Uninstall DisplayVersion '$($uninstallEntry.DisplayVersion)' does not match '$ExpectedVersion'."
+    $uninstallDisplayVersion -eq $ExpectedVersion
+  ) "Uninstall DisplayVersion '$uninstallDisplayVersion' does not match '$ExpectedVersion'."
   Assert-True (
-    -not [string]::IsNullOrWhiteSpace([string]$uninstallEntry.PSPath)
+    -not [string]::IsNullOrWhiteSpace($uninstallKeyPath)
   ) "Uninstall registry key path is missing."
-  $uninstallKeyPath = [string]$uninstallEntry.PSPath
   $expectedDisplayIcon = Join-Path $installDirectory "uninstallerIcon.ico"
   Assert-NonEmptyFile $expectedDisplayIcon "Installed uninstaller display icon"
   Assert-True (
-    [System.IO.Path]::GetFullPath([string]$uninstallEntry.DisplayIcon).Equals(
+    -not [string]::IsNullOrWhiteSpace($uninstallDisplayIcon)
+  ) "Uninstall DisplayIcon is missing."
+  Assert-True (
+    [System.IO.Path]::GetFullPath($uninstallDisplayIcon).Equals(
       [System.IO.Path]::GetFullPath($expectedDisplayIcon),
       [System.StringComparison]::OrdinalIgnoreCase
     )
@@ -708,10 +738,10 @@ try {
   )
   Assert-True ($uninstaller.Count -eq 1) "Expected exactly one NSIS uninstaller."
   Assert-RegisteredUninstallerCommand (
-    [string]$uninstallEntry.UninstallString
+    $registeredUninstallCommand
   ) $uninstaller[0].FullName $false "UninstallString"
   Assert-RegisteredUninstallerCommand (
-    [string]$uninstallEntry.QuietUninstallString
+    $registeredQuietUninstallCommand
   ) $uninstaller[0].FullName $true "QuietUninstallString"
 
   Assert-Shortcut $expectedDesktopShortcut $installedApp "Desktop shortcut" | Out-Null
