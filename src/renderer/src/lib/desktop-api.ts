@@ -15,7 +15,12 @@ const connectionListeners = new Set<(event: GrokConnectionEvent) => void>();
 const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-const previewIsWindows = navigator.userAgent.includes('Windows');
+const previewParameters = new URLSearchParams(window.location.search);
+const previewIsWindows =
+  previewParameters.get('previewPlatform') === 'win32' ||
+  (previewParameters.get('previewPlatform') !== 'darwin' &&
+    navigator.userAgent.includes('Windows'));
+const previewGrokMissing = previewParameters.get('previewGrok') === 'missing';
 const previewPlatform = previewIsWindows ? 'win32' : 'darwin';
 const previewArch = previewIsWindows ? 'x64' : 'arm64';
 const previewHome = previewIsWindows ? 'C:\\Users\\demo' : '/Users/demo';
@@ -27,7 +32,7 @@ function emitSession(event: AcpSessionEvent): void {
 const browserPreviewApi: GrokDesktopApi = {
   reportRendererReady: async () => undefined,
   getAppInfo: async () => ({
-    version: '0.2.0-alpha.3',
+    version: '0.2.0-alpha.4',
     platform: previewPlatform,
     arch: previewArch,
     isPackaged: false,
@@ -52,14 +57,25 @@ const browserPreviewApi: GrokDesktopApi = {
     statusLines: [],
     diffStat: '',
   }),
-  checkGrok: async () => ({
-    status: 'detected',
-    binaryPath: previewIsWindows
-      ? `${previewHome}\\.grok\\bin\\grok.exe`
-      : `${previewHome}/.grok/bin/grok`,
-    version: 'grok 0.2.99（浏览器预览）',
-    authenticated: true,
-  }),
+  checkGrok: async () =>
+    previewGrokMissing
+      ? {
+          status: 'offline',
+          binaryPath: null,
+          version: null,
+          authenticated: null,
+          detail: '未找到 Grok Build。请先安装官方 grok CLI。',
+          issueCode: 'binary_missing',
+          retryable: true,
+        }
+      : {
+          status: 'detected',
+          binaryPath: previewIsWindows
+            ? `${previewHome}\\.grok\\bin\\grok.exe`
+            : `${previewHome}/.grok/bin/grok`,
+          version: 'grok 0.2.99（浏览器预览）',
+          authenticated: true,
+        },
   connectGrok: async () => ({
     status: 'ready',
     detail: '浏览器界面预览模式',

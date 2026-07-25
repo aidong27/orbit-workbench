@@ -1,6 +1,6 @@
 {
   "name": "orbit-workbench",
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0-alpha.4",
   "private": true,
   "description": "星轨工作台：非官方 Grok Build 中文图形客户端",
   "author": "aidong27",
@@ -17,15 +17,19 @@
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "lint": "biome check src electron.vite.config.ts",
-    "format": "biome check --write src electron.vite.config.ts",
+    "lint": "biome check src scripts/*.mjs electron.vite.config.ts",
+    "format": "biome check --write src scripts/*.mjs electron.vite.config.ts",
     "test": "vitest run",
+    "test:scripts": "node --test scripts/*.node-test.mjs",
     "test:watch": "vitest",
     "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
     "licenses:check": "node scripts/generate-third-party-licenses.mjs --check",
+    "windows:config:check": "node scripts/validate-windows-package-config.mjs",
     "electron:prepare": "node scripts/ensure-electron-runtime.mjs",
     "smoke:acp": "node scripts/smoke-acp.mjs",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm licenses:check && pnpm build",
+    "verify:win-job": "node scripts/verify-windows-job-runner.mjs",
+    "verify:win-package": "pwsh -NoLogo -NoProfile -NonInteractive -File scripts/verify-windows-package.ps1",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:scripts && pnpm licenses:check && pnpm windows:config:check && pnpm build",
     "package:dir": "pnpm electron:prepare && pnpm build && electron-builder --dir --publish never",
     "dist:mac": "pnpm electron:prepare && pnpm build && electron-builder --mac --arm64 --publish never",
     "dist:win": "pnpm electron:prepare && pnpm build && electron-builder --win --x64 --publish never"
@@ -34,22 +38,22 @@
     "@agentclientprotocol/sdk": "1.2.1",
     "clsx": "2.1.1",
     "lucide-react": "1.25.0",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.4",
+    "@biomejs/biome": "2.5.5",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
-    "@types/node": "26.1.1",
+    "@types/node": "24.13.3",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.2.0",
-    "electron": "43.1.1",
+    "electron": "43.2.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "jsdom": "29.1.1",
@@ -108,6 +112,12 @@
     "win": {
       "icon": "build/icon.ico",
       "executableName": "Orbit Workbench",
+      "extraResources": [
+        {
+          "from": "build/windows-job-runner.exe",
+          "to": "windows-job-runner.exe"
+        }
+      ],
       "target": [
         {
           "target": "nsis",
@@ -126,11 +136,16 @@
     "nsis": {
       "artifactName": "Orbit-Workbench-${version}-Windows-${arch}-Setup.${ext}",
       "oneClick": false,
+      "unicode": true,
+      "warningsAsErrors": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "星轨工作台",
-      "uninstallDisplayName": "星轨工作台"
+      "uninstallDisplayName": "星轨工作台",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "portable": {
       "artifactName": "Orbit-Workbench-${version}-Windows-${arch}-Portable.${ext}"

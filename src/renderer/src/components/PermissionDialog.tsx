@@ -1,7 +1,9 @@
 import { AlertTriangle, Ban, Copy, FolderGit2, ShieldCheck, TerminalSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PermissionRequestEvent } from '../../../shared/types';
+import { copyText } from '../lib/clipboard';
 import { compactJson } from '../lib/format';
+import { useCopyFeedback } from '../lib/use-copy-feedback';
 
 interface PermissionDialogProps {
   request: PermissionRequestEvent;
@@ -60,6 +62,7 @@ export function PermissionDialog({
   const rawInput = compactJson(request.toolCall.rawInput);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const [copyStatus, reportCopy] = useCopyFeedback();
   const [secondsRemaining, setSecondsRemaining] = useState(() =>
     Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1_000)),
   );
@@ -147,7 +150,9 @@ export function PermissionDialog({
             </div>
             <div>
               <dt>路径</dt>
-              <dd title={source.projectPath}>{source.projectPath}</dd>
+              <dd className="permission-source__path" dir="ltr" title={source.projectPath}>
+                {source.projectPath}
+              </dd>
             </div>
             <div>
               <dt>会话</dt>
@@ -158,12 +163,24 @@ export function PermissionDialog({
             <button
               type="button"
               onClick={() =>
-                void navigator.clipboard.writeText(source.projectPath).catch(() => undefined)
+                void copyText(source.projectPath).then((copied) => {
+                  reportCopy(copied);
+                })
               }
               disabled={submitting}
             >
-              <Copy size={13} /> 复制完整路径
+              <Copy size={13} />{' '}
+              {copyStatus === 'success'
+                ? '路径已复制'
+                : copyStatus === 'failure'
+                  ? '复制失败，请重试'
+                  : '复制完整路径'}
             </button>
+            {copyStatus !== 'idle' && (
+              <span className="visually-hidden" role="status" aria-live="polite">
+                {copyStatus === 'success' ? '工作区路径已复制' : '工作区路径复制失败'}
+              </span>
+            )}
             {source.onShowSource && source.background && (
               <button type="button" onClick={source.onShowSource} disabled={submitting}>
                 切换到来源会话
@@ -174,7 +191,7 @@ export function PermissionDialog({
         {rawInput && (
           <div className="permission-command">
             <TerminalSquare size={15} />
-            <pre>{rawInput}</pre>
+            <pre dir="ltr">{rawInput}</pre>
           </div>
         )}
         <div className="permission-warning">

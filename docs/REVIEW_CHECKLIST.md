@@ -1,6 +1,6 @@
 # 跨平台公开预览检查清单
 
-本清单用于 `0.2.0-alpha.3` 及后续公开预览。只有代码、安装包、文档和仓库设置同时通过，才应创建公开 Release。
+本清单用于 `0.2.0-alpha.4` 及后续公开预览。只有代码、安装包、文档和仓库设置同时通过，才应创建公开 Release。
 
 ## 通用代码质量
 
@@ -8,19 +8,30 @@
 - [ ] `pnpm check` 完成类型检查、lint、测试和生产构建。
 - [ ] 依赖漏洞与许可证检查已复核。
 - [ ] 完整 Git 历史秘密扫描无密钥、令牌、认证文件或私人路径。
-- [ ] CI 使用固定主版本/版本号，最小 `permissions` 为只读。
+- [ ] GitHub Actions 固定到完整 commit SHA，Node/pnpm 版本受控，最小 `permissions` 为只读。
 - [ ] 仓库没有提交 `release/`、`out/`、真实会话或私有项目内容。
 
 ## Windows x64
 
 - [ ] 在 GitHub 托管的 Windows runner 上完成 `pnpm dist:win`。
-- [ ] 生成 NSIS Setup 和 Portable 两个 `.exe`。
-- [ ] 安装路径可选择，桌面/开始菜单快捷方式名称正确。
-- [ ] Portable 版本不要求安装并能独立启动。
+- [ ] 严格生成与 `package.json` 版本一致的 NSIS Setup 和 Portable 两个 x64 `.exe`，`release/` 根目录没有任何其他 `.exe`。
+- [ ] `pnpm windows:config:check` 验证 Unicode、辅助安装、稳定产物名、快捷方式和保留用户数据策略。
+- [ ] unpacked 应用、NSIS 安装后应用与重命名后的 Portable 均完成真实 renderer/preload 启动。
+- [ ] NSIS 能静默安装到同时包含空格与中文的路径；安装后产品名、ProductVersion、主程序和 `app.asar` 正确。
+- [ ] 安装后的完整许可证、Chromium notices 和第三方声明均存在且非空。
+- [ ] 仅按当前测试安装目录定位唯一卸载注册项，显示版本精确匹配，UninstallString 精确指向本轮卸载程序，不受旧安装项影响。
+- [ ] 桌面/开始菜单快捷方式存在、中文名称正确并指向当前安装目录。
+- [ ] 静默卸载后整个安装目录、两个精确路径的快捷方式和本轮卸载注册 key 消失；由应用报告的 `app.getPath('userData')` sentinel 仍保留。
+- [ ] Portable 版本从含空格与中文的重命名路径启动，不创建对应卸载注册项或任何新快捷方式。
+- [ ] Setup、安装版、Portable 和卸载流程只检查并处置本轮新建进程；测试开始前已存在的 PID 绝不终止。
+- [ ] 安装包内 `windows-job-runner.exe` 的 SHA-256、PE32+ x64 头与源码记录一致。
+- [ ] 原生 Windows 门禁证明 Job Object 监督器逐字节保留 stdio，并在直接子进程先退出后清理仍存活的后代。
+- [ ] `SHA256SUMS-Windows-x64.txt` 仅包含当前版本 Setup/Portable，清单被重新读取并验证。
+- [ ] Windows 构建日志始终尝试上传；验证诊断可在验证成功或验证脚本内普通步骤失败时下载。checkout、依赖安装、构建中断、runner 丢失或任务取消不承诺完整诊断。
 - [ ] 能从默认目录和 `PATH` 找到 `grok.exe`。
 - [ ] `GROK_BINARY` 指向有效绝对路径时可覆盖自动检测。
 - [ ] 无效、非 `.exe` 或不存在的路径显示可操作中文错误。
-- [ ] 受控退出后，`taskkill /t /f` 对应的 Grok ACP 进程树不再运行。
+- [ ] Grok 在 `CREATE_SUSPENDED` 状态加入 kill-on-close Job Object 后才运行；受控退出先关闭 ACP stdin，宽限期后才通过 System32 中 `taskkill /t /f` 的绝对路径结束监督器。
 - [ ] 窗口、中文、快捷键和系统目录选择器显示正确。
 
 ## macOS arm64
@@ -58,7 +69,7 @@
 - [ ] Markdown 中的 HTML、脚本和危险 URL 无法执行。
 - [ ] 本地恢复数据不包含 ACP Session ID、权限请求或工具原始载荷。
 - [ ] 恢复的旧时间线标记为“仅本地历史”，不能在原视觉会话下静默新建 ACP session。
-- [ ] v1 数据迁移到 v2 后通过 schema 校验，失效项目/会话引用得到修复。
+- [ ] v1/v2 数据迁移到 v3 后通过 schema 校验，失效项目/会话引用得到修复。
 - [ ] Grok 子进程只继承环境白名单，Node/Electron 注入变量始终被拒绝。
 - [ ] ACP NDJSON 单帧上限、诊断脱敏和 Electron fuses 在打包产物中验证通过。
 - [ ] `pnpm licenses:check` 通过，完整第三方许可证正文与 Chromium notices 已进入最终安装包。
@@ -87,7 +98,7 @@
 
 ## Release
 
-- [ ] `v0.2.0-alpha.3` 标签指向通过检查的 `main` 提交。
+- [ ] `v0.2.0-alpha.4` 标签指向通过检查的 `main` 提交。
 - [ ] Release 标记为 Pre-release，并包含 Windows/macOS 产物。
 - [ ] 文件名、架构和版本与 `package.json` 一致。
 - [ ] 每个产物有 SHA-256 校验值。

@@ -215,7 +215,7 @@ function PlanCard({ item }: { item: PlanItem }) {
         {item.entries.length === 0 && <li className="plan-entry">计划当前没有步骤</li>}
         {item.entries.map((entry) => (
           <li key={entry.id} className={`plan-entry plan-entry--${entry.status}`}>
-            <span className="plan-entry__state">
+            <span className="plan-entry__state" aria-hidden="true">
               {entry.status === 'completed' ? (
                 <CheckCircle2 size={14} />
               ) : entry.status === 'in_progress' ? (
@@ -224,7 +224,10 @@ function PlanCard({ item }: { item: PlanItem }) {
                 <Circle size={13} />
               )}
             </span>
-            <span>{entry.content}</span>
+            <span>
+              <span className="visually-hidden">{statusLabel(entry.status)}：</span>
+              {entry.content}
+            </span>
           </li>
         ))}
       </ol>
@@ -272,9 +275,15 @@ export function Timeline({
   const scrollToLatest = useCallback((behavior: ScrollBehavior = 'auto'): void => {
     const node = scrollRef.current;
     if (!node) return;
+    const reducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     nearBottomRef.current = true;
     setShowJumpToLatest(false);
-    node.scrollTo({ top: node.scrollHeight, behavior });
+    node.scrollTo({
+      top: node.scrollHeight,
+      behavior: reducedMotion && behavior === 'smooth' ? 'auto' : behavior,
+    });
   }, []);
 
   useEffect(() => {

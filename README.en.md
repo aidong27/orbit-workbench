@@ -46,7 +46,7 @@ Orbit Workbench gives an already-installed Grok Build CLI a Chinese desktop inte
 
 ## Supported platforms
 
-The current release is **`0.2.0-alpha.3`**. Alpha builds are intended for testing and review, not irreplaceable workspaces.
+The current source version is **`0.2.0-alpha.4`**; downloadable builds and the latest published tag are listed on [Releases](https://github.com/aidong27/orbit-workbench/releases). Alpha builds are intended for testing and review, not irreplaceable workspaces.
 
 | Platform | Architecture | Packages | Status |
 | --- | --- | --- | --- |
@@ -56,12 +56,14 @@ The current release is **`0.2.0-alpha.3`**. Alpha builds are intended for testin
 
 ## Installation
 
-1. Install and authenticate [Grok Build CLI](https://github.com/xai-org/grok-build), then verify `grok --version` and `grok login`.
-2. Download the package for your platform from [Releases](https://github.com/aidong27/orbit-workbench/releases).
-3. Windows requires an executable `grok.exe`. If it is not detected from the default location or `PATH`, set `GROK_BINARY` to its absolute path.
+1. Install and authenticate Grok Build CLI using the [official xAI documentation](https://docs.x.ai/build/overview), then verify `grok --version` and `grok login`.
+2. Download an artifact only when the matching `v0.2.0-alpha.4` prerelease is present on [Releases](https://github.com/aidong27/orbit-workbench/releases). Until then, build this source version locally; do not rename an older artifact.
+3. On Windows, the app checks `GROK_BINARY`, `GROK_BIN_DIR`, the official `%USERPROFILE%\.grok\bin\grok.exe` location, and absolute directories in `PATH`. It accepts only absolute file paths ending in `.exe`, not `.cmd` or `.bat` wrappers; the missing-CLI screen provides xAI's official PowerShell installer command as a copy-only action and warns that the pipeline downloads and immediately executes the script.
 
 > [!WARNING]
-> Current Alpha packages are not Windows code-signed or Apple Developer ID notarized. Download only from this repository, verify the published checksums, and build from source when provenance cannot be confirmed.
+> Current Alpha packages are not Windows Authenticode-signed. macOS packages are neither Apple Developer ID-signed nor notarized. Download only from this repository, verify the published checksums, and build from source when provenance cannot be confirmed.
+
+On Windows, Grok runs behind an auditable, fixed-hash x64 Job Object supervisor. The CLI is created suspended, assigned to a kill-on-close job, and only then resumed, so the application does not mistake a terminated leader for a fully terminated process tree.
 
 See the bilingual [installation guide](docs/INSTALLATION.md) for artifact names, checksum commands, and troubleshooting.
 
@@ -96,7 +98,7 @@ Report vulnerabilities privately through [GitHub Private Vulnerability Reporting
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Support policy](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [0.2.0-alpha.3 release notes](docs/RELEASE_NOTES.md)
+- [0.2.0-alpha.4 release notes](docs/RELEASE_NOTES.md)
 - [Changelog](CHANGELOG.md)
 
 ## License and trademarks

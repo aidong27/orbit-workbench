@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SanitizedToolCall, UiAcpEvent } from '../../../shared/types';
 import type { AppState, WorkSession, WorkspaceProject } from './model';
-import { makeProject, makeSession, sessionBlocksInput } from './model';
+import { makeProject, makeSession, sessionBlocksInput, workspacePathKey } from './model';
 import { reducer } from './reducer';
 
 function projectFixture(overrides: Partial<WorkspaceProject> = {}): WorkspaceProject {
@@ -112,8 +112,158 @@ describe('Grok ACP 状态归一化', () => {
     const next = reducer(state, { type: 'PROJECT_ADDED', project: reopened });
 
     expect(reopened.id).toBe(existing.id);
-    expect(next.projects).toHaveLength(2);
+    expect(next.projects).toHaveLength(1);
+    expect(next.projects.some((project) => project.demo)).toBe(false);
     expect(next.activeProjectId).toBe(existing.id);
+  });
+
+  it('deduplicates Windows workspace paths across drive casing and slash variants', () => {
+    const existing = projectFixture({
+      id: 'windows-project',
+      path: String.raw`\\?\C:\Users\Alice\Projects\Orbit`,
+    });
+    const reopened = makeProject(
+      {
+        name: 'Orbit',
+        path: 'c:/users/alice/projects/orbit/',
+        branch: 'main',
+        isGitRepository: true,
+        changedFiles: 0,
+        statusLines: [],
+        diffStat: '',
+      },
+      [existing],
+    );
+
+    expect(reopened.id).toBe(existing.id);
+  });
+
+  it('normalizes Windows drive roots, UNC roots, and extended paths consistently', () => {
+    expect(workspacePathKey('C:\\')).toBe(workspacePathKey('c:/'));
+    expect(workspacePathKey(`${String.raw`\\Server\Share`}\\`)).toBe(
+      workspacePathKey(String.raw`\\?\UNC\server\share`),
+    );
+    expect(workspacePathKey('//SERVER/SHARE/Orbit/')).toBe(
+      workspacePathKey(String.raw`\\?\UNC\server\share\orbit`),
+    );
+    expect(workspacePathKey('//?/C:/Users/Alice/Orbit/')).toBe(
+      workspacePathKey(String.raw`c:\users\alice\orbit`),
+    );
+    expect(workspacePathKey(`${String.raw`\\?\C:\Users\Alice\Orbit`}\\`)).toBe(
+      workspacePathKey('c:/users/alice/orbit'),
+    );
+    expect(workspacePathKey(String.raw`/tmp/project\literal`)).toBe(
+      String.raw`/tmp/project\literal`,
+    );
+    expect(workspacePathKey('/')).toBe('/');
+    expect(workspacePathKey('')).toBe('');
+  });
+
+  it('keeps PROJECT_ADDED unique by both id and normalized Windows path', () => {
+    const existing = projectFixture({
+      id: 'same-project',
+      path: String.raw`C:\Orbit`,
+      name: 'old',
+    });
+    const state = {
+      ...stateFixture(sessionFixture({ projectId: existing.id })),
+      projects: [existing],
+    };
+    const next = reducer(state, {
+      type: 'PROJECT_ADDED',
+      project: projectFixture({
+        id: 'same-project',
+        path: `${String.raw`\\?\C:\Orbit`}\\`,
+        name: 'refreshed',
+      }),
+    });
+
+    expect(next.projects).toHaveLength(1);
+    expect(next.projects[0]).toMatchObject({
+      id: existing.id,
+      name: 'refreshed',
+    });
+    expect(next.sessions[0]?.projectId).toBe(existing.id);
+  });
+
+  it('merges PROJECT_UPDATED path collisions and remaps sessions to the canonical project', () => {
+    const driveProject = projectFixture({
+      id: 'drive-project',
+      path: String.raw`C:\Orbit`,
+    });
+    const uncProject = projectFixture({
+      id: 'unc-project',
+      path: String.raw`\\Server\Share\Orbit`,
+    });
+    const state = {
+      ...stateFixture(sessionFixture({ projectId: uncProject.id })),
+      projects: [driveProject, uncProject],
+      activeProjectId: uncProject.id,
+    };
+    const next = reducer(state, {
+      type: 'PROJECT_UPDATED',
+      project: {
+        ...uncProject,
+        path: String.raw`\\?\C:\Orbit`,
+        name: 'merged workspace',
+      },
+    });
+
+    expect(next.projects).toHaveLength(1);
+    expect(next.projects[0]).toMatchObject({
+      id: driveProject.id,
+      name: 'merged workspace',
+    });
+    expect(next.sessions[0]?.projectId).toBe(driveProject.id);
+    expect(next.activeProjectId).toBe(driveProject.id);
+  });
+
+  it('heals duplicate UNC projects before PROJECT_SELECTED resolves the active session', () => {
+    const canonical = projectFixture({
+      id: 'canonical-project',
+      path: String.raw`\\Server\Share\Orbit`,
+    });
+    const duplicate = projectFixture({
+      id: 'duplicate-project',
+      path: `${String.raw`\\?\UNC\SERVER\SHARE\Orbit`}\\`,
+    });
+    const duplicateSession = sessionFixture({
+      id: 'duplicate-session',
+      projectId: duplicate.id,
+    });
+    const state = {
+      ...stateFixture(duplicateSession),
+      projects: [canonical, duplicate],
+      activeProjectId: duplicate.id,
+    };
+    const next = reducer(state, {
+      type: 'PROJECT_SELECTED',
+      projectId: duplicate.id,
+    });
+
+    expect(next.projects).toHaveLength(1);
+    expect(next.projects[0]?.id).toBe(canonical.id);
+    expect(next.sessions[0]?.projectId).toBe(canonical.id);
+    expect(next.activeProjectId).toBe(canonical.id);
+    expect(next.activeSessionId).toBe(duplicateSession.id);
+  });
+
+  it('keeps case-sensitive POSIX workspace paths distinct', () => {
+    const existing = projectFixture({ id: 'upper-project', path: '/tmp/Orbit' });
+    const reopened = makeProject(
+      {
+        name: 'orbit',
+        path: '/tmp/orbit',
+        branch: 'main',
+        isGitRepository: true,
+        changedFiles: 0,
+        statusLines: [],
+        diffStat: '',
+      },
+      [existing],
+    );
+
+    expect(reopened.id).not.toBe(existing.id);
   });
 
   it('marks disconnected sessions as local history instead of silently recreating context', () => {
@@ -144,6 +294,78 @@ describe('Grok ACP 状态归一化', () => {
       confirmedModeId: null,
       status: 'failed',
     });
+  });
+
+  it('converges every streaming item and unfinished tool when the agent disconnects', () => {
+    const disconnected = reducer(
+      stateFixture(
+        sessionFixture({
+          status: 'awaiting_permission',
+          timeline: [
+            {
+              id: 'answer-1',
+              type: 'message',
+              role: 'assistant',
+              protocolMessageId: 'protocol-answer-1',
+              content: 'partial answer',
+              streaming: true,
+              createdAt: 1,
+            },
+            {
+              id: 'thought-1',
+              type: 'thought',
+              protocolMessageId: 'protocol-thought-1',
+              content: 'still thinking',
+              streaming: true,
+              createdAt: 2,
+            },
+            {
+              id: 'tool-pending',
+              type: 'tool',
+              toolCallId: 'tool-call-pending',
+              title: '等待执行',
+              kind: 'execute',
+              status: 'pending',
+              createdAt: 3,
+            },
+            {
+              id: 'tool-running',
+              type: 'tool',
+              toolCallId: 'tool-call-running',
+              title: '正在执行',
+              kind: 'execute',
+              status: 'in_progress',
+              createdAt: 4,
+            },
+          ],
+        }),
+      ),
+      {
+        type: 'CONNECTION_EVENT',
+        event: { status: 'offline', detail: 'channel closed', issueCode: 'channel_closed' },
+      },
+    );
+
+    expect(disconnected.sessions[0]?.timeline).toMatchObject([
+      { id: 'answer-1', streaming: false },
+      { id: 'thought-1', streaming: false },
+      { id: 'tool-pending', status: 'failed' },
+      { id: 'tool-running', status: 'failed' },
+    ]);
+    expect(disconnected.sessions[0]?.status).toBe('failed');
+  });
+
+  it('keeps settings and the command palette mutually exclusive', () => {
+    const withSettings = reducer(
+      { ...stateFixture(), commandPaletteOpen: true },
+      { type: 'SETTINGS', open: true },
+    );
+    expect(withSettings.settingsOpen).toBe(true);
+    expect(withSettings.commandPaletteOpen).toBe(false);
+
+    const withCommands = reducer(withSettings, { type: 'COMMAND_PALETTE', open: true });
+    expect(withCommands.commandPaletteOpen).toBe(true);
+    expect(withCommands.settingsOpen).toBe(false);
   });
 
   it('treats a detected CLI as preflight only and ignores stale connection attempts', () => {

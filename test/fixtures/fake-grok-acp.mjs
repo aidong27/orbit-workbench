@@ -80,7 +80,7 @@ async function sendPermissionScenario(client, sessionId) {
     options: [
       {
         optionId: ORIGINAL_PERMISSION_OPTION_ID,
-        name: 'Allow once',
+        name: 'Allow once\u202E password="agent option secret"',
         kind: 'allow_once',
       },
       {

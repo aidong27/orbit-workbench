@@ -1,5 +1,6 @@
 import { FolderOpen, PanelRight, Plus, Search, Settings, SidebarClose } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { shouldSubmitComposerKey } from '../lib/composer-input';
 
 export interface CommandItem {
   id: string;
@@ -33,6 +34,8 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const shortcutPrefix = platform === 'darwin' ? '⌘' : 'Ctrl+';
   const commands = useMemo<CommandItem[]>(
     () => [
@@ -84,11 +87,16 @@ export function CommandPalette({
   const filtered = commands.filter((command) => command.label.includes(query.trim()));
 
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setSelectedIndex(0);
-      window.setTimeout(() => inputRef.current?.focus(), 30);
-    }
+    if (!open) return;
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setQuery('');
+    setSelectedIndex(0);
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 30);
+    return () => {
+      window.clearTimeout(timer);
+      returnFocusRef.current?.focus();
+    };
   }, [open]);
 
   if (!open) return null;
@@ -96,12 +104,36 @@ export function CommandPalette({
     onClose();
     command.run();
   };
+  const onDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [
+      ...(dialogRef.current?.querySelectorAll<HTMLElement>('input, button:not(:disabled)') ?? []),
+    ];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: clicking the visual backdrop dismisses the modal.
     <div className="command-backdrop" onMouseDown={onClose} role="presentation">
       <section
+        ref={dialogRef}
         className="command-palette"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={onDialogKeyDown}
         role="dialog"
         aria-modal="true"
         aria-labelledby="command-palette-title"
@@ -119,10 +151,11 @@ export function CommandPalette({
               setSelectedIndex(0);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') onClose();
               if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                setSelectedIndex((index) => Math.min(index + 1, filtered.length - 1));
+                setSelectedIndex((index) =>
+                  filtered.length === 0 ? 0 : Math.min(index + 1, filtered.length - 1),
+                );
               }
               if (event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -136,7 +169,15 @@ export function CommandPalette({
                 event.preventDefault();
                 setSelectedIndex(Math.max(filtered.length - 1, 0));
               }
-              if (event.key === 'Enter' && filtered[selectedIndex]) {
+              if (
+                shouldSubmitComposerKey({
+                  key: event.key,
+                  shiftKey: event.shiftKey,
+                  isComposing: event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode,
+                }) &&
+                filtered[selectedIndex]
+              ) {
                 run(filtered[selectedIndex]);
               }
             }}

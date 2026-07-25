@@ -132,6 +132,7 @@ export function Sidebar({
                 }
                 aria-current={project.id === state.activeProjectId ? 'page' : undefined}
                 onClick={() => onSelectProject(project.id)}
+                title={project.path || project.name}
               >
                 <FolderGit2 size={15} />
                 <span className="workspace-row__copy">
@@ -163,6 +164,7 @@ export function Sidebar({
                   }
                   aria-current={session.id === state.activeSessionId ? 'page' : undefined}
                   onClick={() => onSelectSession(session.id)}
+                  title={session.title}
                 >
                   <span className={`session-row__dot status-${session.status}`} />
                   <span className="session-row__copy">

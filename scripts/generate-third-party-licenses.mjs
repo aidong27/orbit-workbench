@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { pnpmInvocation } from './platform-command.mjs';
@@ -37,7 +37,8 @@ function licenseFiles(packagePath) {
 function packageEntry(packagePath) {
   const metadata = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8'));
   const files = licenseFiles(packagePath);
-  if (files.length === 0) throw new Error(`${metadata.name}@${metadata.version} has no license file`);
+  if (files.length === 0)
+    throw new Error(`${metadata.name}@${metadata.version} has no license file`);
   const text = files
     .map((name) => `--- ${name} ---\n${readFileSync(join(packagePath, name), 'utf8').trim()}`)
     .join('\n\n');

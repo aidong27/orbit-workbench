@@ -21,7 +21,7 @@ export const initialState: AppState = {
   inspectorTab: 'changes',
   commandPaletteOpen: false,
   settingsOpen: false,
-  appVersion: '0.2.0-alpha.3',
+  appVersion: '0.2.0-alpha.4',
   appPlatform: 'darwin',
   appArch: 'arm64',
 };

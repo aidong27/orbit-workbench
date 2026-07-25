@@ -22,6 +22,7 @@ interface ComposerProps {
   connectionStatus: ConnectionStatus;
   connectionIssueCode: ConnectionIssueCode | null;
   connectionDetail: string;
+  focusBlocked: boolean;
   onValueChange: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
@@ -38,6 +39,7 @@ export function Composer({
   connectionStatus,
   connectionIssueCode,
   connectionDetail,
+  focusBlocked,
   onValueChange,
   onSend,
   onStop,
@@ -47,9 +49,12 @@ export function Composer({
   onOpenConnectionCenter,
 }: ComposerProps) {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [modeFocusIndex, setModeFocusIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const modeRootRef = useRef<HTMLDivElement>(null);
+  const focusBlockedRef = useRef(focusBlocked);
+  const modeRootRef = useRef<HTMLFieldSetElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
+  const modeItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const isWorking = session ? sessionBlocksInput(session.status) : false;
   const connected = connectionStatus === 'ready';
   const connectionBusy =
@@ -77,6 +82,12 @@ export function Composer({
   );
   const activeSessionId = session?.id;
   const selectedModeId = session?.confirmedModeId ?? session?.requestedModeId ?? null;
+  const modes = session?.availableModes.length
+    ? session.availableModes
+    : [
+        { id: 'normal', name: '普通' },
+        { id: 'plan', name: '计划' },
+      ];
   const modeButtonLabel =
     session?.modeSwitchStatus === 'switching'
       ? `正在切换到${modeLabel(session.requestedModeId)}`
@@ -86,8 +97,9 @@ export function Composer({
           ? `${modeLabel(session.requestedModeId)}（未确认）`
           : '跟随 Grok（首条任务时确认）';
 
+  focusBlockedRef.current = focusBlocked;
   useEffect(() => {
-    if (activeSessionId) textareaRef.current?.focus();
+    if (activeSessionId && !focusBlockedRef.current) textareaRef.current?.focus();
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -95,18 +107,59 @@ export function Composer({
     const onPointerDown = (event: PointerEvent): void => {
       if (!modeRootRef.current?.contains(event.target as Node)) setModeMenuOpen(false);
     };
-    const onEscape = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      setModeMenuOpen(false);
-      modeButtonRef.current?.focus();
-    };
     document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onEscape);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onEscape);
     };
   }, [modeMenuOpen]);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      modeItemRefs.current[modeFocusIndex]?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [modeFocusIndex, modeMenuOpen]);
+
+  const openModeMenu = (focusIndex: number): void => {
+    setModeFocusIndex(Math.max(0, Math.min(focusIndex, modes.length - 1)));
+    setModeMenuOpen(true);
+  };
+
+  const closeModeMenu = (returnFocus: boolean): void => {
+    setModeMenuOpen(false);
+    if (returnFocus) modeButtonRef.current?.focus();
+  };
+
+  const onModeButtonKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'Home') {
+      event.preventDefault();
+      openModeMenu(0);
+    } else if (event.key === 'ArrowUp' || event.key === 'End') {
+      event.preventDefault();
+      openModeMenu(modes.length - 1);
+    } else if (event.key === 'Escape' && modeMenuOpen) {
+      event.preventDefault();
+      closeModeMenu(true);
+    }
+  };
+
+  const onModeMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeModeMenu(true);
+      return;
+    }
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowDown') nextIndex = (modeFocusIndex + 1) % modes.length;
+    if (event.key === 'ArrowUp') nextIndex = (modeFocusIndex - 1 + modes.length) % modes.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = modes.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    setModeFocusIndex(nextIndex);
+  };
 
   const submit = (): void => {
     const prompt = value.trim();
@@ -184,37 +237,60 @@ export function Composer({
         />
         <div className="composer__toolbar">
           <div className="composer__tools">
-            <div className="mode-select" ref={modeRootRef}>
+            <fieldset
+              className="mode-select"
+              ref={modeRootRef}
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setModeMenuOpen(false);
+              }}
+            >
+              <legend className="visually-hidden">会话模式</legend>
               <button
                 ref={modeButtonRef}
                 type="button"
-                onClick={() => setModeMenuOpen((open) => !open)}
+                onClick={() => {
+                  if (modeMenuOpen) {
+                    setModeMenuOpen(false);
+                    return;
+                  }
+                  openModeMenu(
+                    Math.max(
+                      0,
+                      modes.findIndex((mode) => mode.id === selectedModeId),
+                    ),
+                  );
+                }}
+                onKeyDown={onModeButtonKeyDown}
                 disabled={modeDisabled}
                 aria-busy={session?.modeSwitchStatus === 'switching'}
                 aria-expanded={modeMenuOpen}
                 aria-haspopup="menu"
+                aria-controls={modeMenuOpen ? 'composer-mode-menu' : undefined}
               >
                 <Sparkles size={13} />
                 {modeButtonLabel}
                 <ChevronDown size={12} />
               </button>
               {modeMenuOpen && (
-                <div className="mode-menu" role="menu">
-                  {(session?.availableModes.length
-                    ? session.availableModes
-                    : [
-                        { id: 'normal', name: '普通' },
-                        { id: 'plan', name: '计划' },
-                      ]
-                  ).map((mode) => (
+                <div
+                  className="mode-menu"
+                  id="composer-mode-menu"
+                  role="menu"
+                  onKeyDown={onModeMenuKeyDown}
+                >
+                  {modes.map((mode, index) => (
                     <button
+                      ref={(element) => {
+                        modeItemRefs.current[index] = element;
+                      }}
                       type="button"
                       key={mode.id}
                       className={mode.id === selectedModeId ? 'is-active' : ''}
                       role="menuitemradio"
                       aria-checked={mode.id === selectedModeId}
+                      tabIndex={index === modeFocusIndex ? 0 : -1}
                       onClick={() => {
-                        setModeMenuOpen(false);
+                        closeModeMenu(true);
                         onModeChange(mode.id);
                       }}
                     >
@@ -229,7 +305,7 @@ export function Composer({
                   ))}
                 </div>
               )}
-            </div>
+            </fieldset>
           </div>
 
           {isWorking ? (

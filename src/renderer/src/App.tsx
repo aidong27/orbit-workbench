@@ -14,10 +14,11 @@ import { cleanDesktopError } from './lib/connection';
 import { desktopApi, isBrowserPreview } from './lib/desktop-api';
 import { runEngineConnectionAttempt } from './lib/engine-connection';
 import { runSessionTaskOnce } from './lib/in-flight';
+import { hasPrimaryShortcutModifier, shouldBlockBackgroundShortcut } from './lib/keyboard';
 import { decideInitialMode } from './lib/session-mode';
 import { type StreamChunkEvent, streamChunkKey } from './lib/stream-chunks';
 import { initialState } from './state/demo';
-import { makeProject, makeSession, sessionBlocksInput } from './state/model';
+import { makeProject, makeSession, sessionBlocksInput, workspacePathKey } from './state/model';
 import { loadState, saveState } from './state/persistence';
 import { reducer } from './state/reducer';
 
@@ -140,7 +141,11 @@ export default function App() {
         (session) => session.id === routedId || session.acpSessionId === event.sessionId,
       );
       const project = stateRef.current.projects.find((item) => item.id === local?.projectId);
-      if (!local || !project || project.path !== event.workspacePath) {
+      if (
+        !local ||
+        !project ||
+        workspacePathKey(project.path) !== workspacePathKey(event.workspacePath)
+      ) {
         void desktopApi.resolvePermission({ requestId: event.requestId, cancelled: true });
         return;
       }
@@ -473,12 +478,14 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      const command = event.metaKey || event.ctrlKey;
-      if (stateRef.current.pendingPermissions.length > 0) {
-        if (
-          command &&
-          (event.key.toLowerCase() === 'k' || event.key.toLowerCase() === 'n' || event.key === ',')
-        ) {
+      if (event.defaultPrevented || event.isComposing) return;
+      const command = hasPrimaryShortcutModifier(event);
+      const modalOpen =
+        stateRef.current.pendingPermissions.length > 0 ||
+        stateRef.current.settingsOpen ||
+        stateRef.current.commandPaletteOpen;
+      if (modalOpen) {
+        if (shouldBlockBackgroundShortcut(true, event)) {
           event.preventDefault();
         }
         return;
@@ -524,6 +531,7 @@ export default function App() {
           session={activeSession}
           inspectorOpen={state.inspectorOpen}
           connectionStatus={state.connectionStatus}
+          connectionIssueCode={state.connectionIssueCode}
           onOpenConnectionCenter={openSettings}
           onToggleInspector={toggleInspector}
           onRefreshProject={refreshProject}
@@ -553,6 +561,7 @@ export default function App() {
                 connectionStatus={state.connectionStatus}
                 connectionDetail={state.connectionDetail}
                 connectionIssueCode={state.connectionIssueCode}
+                platform={state.appPlatform}
                 binaryPath={state.grokBinaryPath}
                 cliVersion={state.grokCliVersion}
                 onRetryConnection={retryConnection}
@@ -567,6 +576,7 @@ export default function App() {
               connectionStatus={state.connectionStatus}
               connectionIssueCode={state.connectionIssueCode}
               connectionDetail={state.connectionDetail}
+              focusBlocked={state.pendingPermissions.length > 0}
               onValueChange={(value) => {
                 if (!activeSession) return;
                 setDrafts((current) => ({ ...current, [activeSession.id]: value }));
@@ -636,7 +646,11 @@ export default function App() {
             const session = state.sessions.find((item) => item.acpSessionId === request.sessionId);
             const project = state.projects.find((item) => item.id === session?.projectId);
             return {
-              verified: Boolean(session && project && project.path === request.workspacePath),
+              verified: Boolean(
+                session &&
+                  project &&
+                  workspacePathKey(project.path) === workspacePathKey(request.workspacePath),
+              ),
               projectName: project?.name ?? '来源无法验证',
               projectPath: request.workspacePath,
               sessionTitle: session?.title ?? '未知会话',

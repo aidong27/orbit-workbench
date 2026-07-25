@@ -4,7 +4,7 @@
 
 Orbit Workbench is distributed under the Apache License 2.0. It also depends on third-party software released under separate licenses. Those licenses apply to their respective components and are not replaced by the project license.
 
-The following list summarizes the direct runtime components in `0.2.0-alpha.3`. Complete license text for the production dependency graph and Electron is generated in [`THIRD_PARTY_LICENSES.txt`](THIRD_PARTY_LICENSES.txt); Electron's Chromium notices ship separately as `THIRD_PARTY_LICENSES.chromium.html`. Transitive dependency versions remain recorded in `pnpm-lock.yaml`.
+The following list summarizes the direct runtime components in `0.2.0-alpha.4`. Complete license text for the production dependency graph and Electron is generated in [`THIRD_PARTY_LICENSES.txt`](THIRD_PARTY_LICENSES.txt); Electron's Chromium notices ship separately as `THIRD_PARTY_LICENSES.chromium.html`. Transitive dependency versions remain recorded in `pnpm-lock.yaml`.
 
 ## Apache License 2.0
 
@@ -66,10 +66,9 @@ Runtime dependency trees also include MIT-licensed Unified, Micromark and relate
 
 ## Upstream compatible service
 
-Grok Build CLI is a separate upstream program published by xAI under its own terms and Apache-2.0 source license. It is discovered and launched from the user's machine; it is not included in Orbit Workbench installers.
+Grok Build CLI is a separate upstream program published by xAI under its own terms. It is discovered and launched from the user's machine; it is not included in Orbit Workbench installers.
 
-- Project: <https://github.com/xai-org/grok-build>
-- License: <https://github.com/xai-org/grok-build/blob/main/LICENSE>
+- Official documentation: <https://docs.x.ai/build/overview>
 
 ## Complete license information
 

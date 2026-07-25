@@ -1,103 +1,38 @@
-import { execFile, spawn } from 'node:child_process';
-import { constants } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { posix, win32 } from 'node:path';
+import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { Readable, Writable } from 'node:stream';
-import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
+import {
+  buildSmokeChildEnvironment,
+  gracefullyShutdownChild,
+  resolveGrokBinary,
+  windowsJobRunnerCommand,
+} from './smoke-acp-helpers.mjs';
 
-const execFileAsync = promisify(execFile);
-const pathApi = process.platform === 'win32' ? win32 : posix;
-const defaultName = process.platform === 'win32' ? 'grok.exe' : 'grok';
-const explicitBinary = process.env.GROK_BINARY?.trim();
-const candidates = [
-  explicitBinary && pathApi.isAbsolute(explicitBinary) ? explicitBinary : undefined,
-  pathApi.join(homedir(), '.grok', 'bin', defaultName),
-].filter(Boolean);
-
-let binary = null;
-for (const candidate of candidates) {
-  try {
-    await access(candidate, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
-    binary = candidate;
-    break;
-  } catch {
-    // Continue to PATH lookup.
-  }
-}
-
-if (!binary) {
-  const lookup =
-    process.platform === 'win32'
-      ? { file: 'where.exe', args: ['grok.exe'] }
-      : { file: '/usr/bin/env', args: ['which', 'grok'] };
-  try {
-    const { stdout } = await execFileAsync(lookup.file, lookup.args, {
-      encoding: 'utf8',
-      timeout: 3_000,
-      windowsHide: true,
-    });
-    binary = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean) ?? null;
-  } catch {
-    binary = null;
-  }
-}
-
+const binary = await resolveGrokBinary();
 if (!binary) throw new Error('未找到 Grok Build CLI。');
-if (process.platform === 'win32' && !binary.toLowerCase().endsWith('.exe')) {
-  throw new Error('Windows ACP 冒烟测试需要官方 grok.exe。');
-}
 
-const packageJson = JSON.parse(
-  await readFile(new URL('../package.json', import.meta.url), 'utf8'),
-);
+const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
-const child = spawn(binary, ['--no-auto-update', 'agent', 'stdio'], {
+const directCommand = {
+  file: binary,
+  args: ['--no-auto-update', 'agent', 'stdio'],
+};
+const command =
+  process.platform === 'win32'
+    ? windowsJobRunnerCommand(
+        fileURLToPath(new URL('../build/windows-job-runner.exe', import.meta.url)),
+        process.pid,
+        directCommand,
+      )
+    : directCommand;
+const child = spawn(command.file, command.args, {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: process.env,
+  env: buildSmokeChildEnvironment(process.env),
   windowsHide: true,
   detached: process.platform !== 'win32',
 });
-
-const waitForExit = (milliseconds) => {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.removeListener('exit', onExit);
-      resolve();
-    }, milliseconds);
-    const onExit = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    child.once('exit', onExit);
-  });
-};
-
-const terminateProcessTree = async () => {
-  if (!child.pid) return;
-  if (process.platform === 'win32') {
-    await execFileAsync('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
-      timeout: 5_000,
-      windowsHide: true,
-    }).catch(() => child.kill());
-    return;
-  }
-
-  try {
-    process.kill(-child.pid, 'SIGTERM');
-  } catch {
-    child.kill('SIGTERM');
-  }
-  await waitForExit(1_000);
-  try {
-    process.kill(-child.pid, 0);
-    process.kill(-child.pid, 'SIGKILL');
-  } catch {
-    // The process group exited during the grace period.
-  }
-};
 
 let stderr = '';
 child.stderr.setEncoding('utf8');
@@ -126,10 +61,7 @@ const client = {
   sessionUpdate: async () => undefined,
 };
 
-const stream = acp.ndJsonStream(
-  Writable.toWeb(child.stdin),
-  Readable.toWeb(child.stdout),
-);
+const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
 const connection = new acp.ClientSideConnection(() => client, stream);
 
 try {
@@ -180,5 +112,9 @@ try {
   console.error(stderr.trim() || message);
   process.exitCode = 1;
 } finally {
-  await terminateProcessTree();
+  const closed = await gracefullyShutdownChild(child);
+  if (!closed) {
+    console.error('无法确认 Grok ACP 冒烟测试进程已结束。');
+    process.exitCode = 1;
+  }
 }

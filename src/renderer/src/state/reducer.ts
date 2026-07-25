@@ -8,10 +8,93 @@ import type {
   TimelineItem,
   ToolItem,
   WorkSession,
+  WorkspaceProject,
 } from './model';
+import { workspacePathKey } from './model';
 import { reconcilePlanEntries } from './plan';
 
 const MAX_IN_MEMORY_TIMELINE_ITEMS = 600;
+
+function reconcileProjectState(
+  projects: WorkspaceProject[],
+  sessions: WorkSession[],
+): {
+  projects: WorkspaceProject[];
+  sessions: WorkSession[];
+  resolveProjectId: (projectId: string | null) => string | null;
+} {
+  const parent = projects.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root] ?? root;
+    while (parent[index] !== index) {
+      const next = parent[index] ?? root;
+      parent[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  const union = (left: number, right: number): void => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot === rightRoot) return;
+    parent[Math.max(leftRoot, rightRoot)] = Math.min(leftRoot, rightRoot);
+  };
+  const indexById = new Map<string, number>();
+  const indexByPath = new Map<string, number>();
+
+  projects.forEach((project, index) => {
+    const sameId = indexById.get(project.id);
+    if (sameId === undefined) indexById.set(project.id, index);
+    else union(index, sameId);
+
+    const pathKey = workspacePathKey(project.path);
+    if (!pathKey) return;
+    const samePath = indexByPath.get(pathKey);
+    if (samePath === undefined) indexByPath.set(pathKey, index);
+    else union(index, samePath);
+  });
+
+  const indexesByRoot = new Map<number, number[]>();
+  projects.forEach((_, index) => {
+    const root = find(index);
+    const indexes = indexesByRoot.get(root) ?? [];
+    indexes.push(index);
+    indexesByRoot.set(root, indexes);
+  });
+
+  const projectIdMap = new Map<string, string>();
+  const reconciledProjects = [...indexesByRoot.values()]
+    .sort((left, right) => (left[0] ?? 0) - (right[0] ?? 0))
+    .map((indexes) => {
+      const canonical = projects[indexes[0] ?? 0];
+      const latest = projects[indexes.at(-1) ?? 0];
+      if (!canonical || !latest) throw new Error('Project reconciliation received an empty group.');
+      for (const index of indexes) {
+        const project = projects[index];
+        if (project) projectIdMap.set(project.id, canonical.id);
+      }
+      return {
+        ...canonical,
+        ...latest,
+        id: canonical.id,
+        addedAt: Math.min(...indexes.map((index) => projects[index]?.addedAt ?? latest.addedAt)),
+        demo: latest.demo,
+      };
+    });
+  const resolveProjectId = (projectId: string | null): string | null =>
+    projectId === null ? null : (projectIdMap.get(projectId) ?? null);
+  const reconciledSessions = sessions.map((session) => {
+    const projectId = resolveProjectId(session.projectId);
+    return projectId && projectId !== session.projectId ? { ...session, projectId } : session;
+  });
+
+  return {
+    projects: reconciledProjects,
+    sessions: reconciledSessions,
+    resolveProjectId,
+  };
+}
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -246,10 +329,14 @@ function applyConnectionEvent(
             session.status === 'connecting' ||
             session.status === 'awaiting_permission' ||
             session.status === 'cancelling';
+          const timeline = wasActive
+            ? finishStreamingItems(session.timeline, 'failed')
+            : session.timeline;
           return {
             ...session,
+            timeline,
             acpSessionId: null,
-            continuity: session.timeline.length > 0 ? 'local-history-only' : 'fresh',
+            continuity: timeline.length > 0 ? 'local-history-only' : 'fresh',
             confirmedModeId: null,
             availableModes: [],
             availableCommands: [],
@@ -259,6 +346,7 @@ function applyConnectionEvent(
             modeSwitchStatus: 'idle',
             modeSwitchError: null,
             status: wasActive ? ('failed' as const) : session.status,
+            updatedAt: wasActive ? Date.now() : session.updatedAt,
           };
         })
       : state.sessions,
@@ -363,42 +451,45 @@ export function applyAcpEvent(session: WorkSession, event: UiAcpEvent): WorkSess
 export function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'PROJECT_ADDED': {
-      const existing = state.projects.find((project) => project.path === action.project.path);
-      if (existing) {
-        return {
-          ...state,
-          projects: state.projects.map((project) =>
-            project.id === existing.id ? { ...action.project, id: existing.id } : project,
-          ),
-          activeProjectId: existing.id,
-          activeSessionId:
-            state.sessions.find((session) => session.projectId === existing.id)?.id ?? null,
-        };
-      }
       const realProjects = state.projects.filter((project) => !project.demo);
       const realSessions = state.sessions.filter((session) => !session.demo);
+      const reconciled = reconcileProjectState([...realProjects, action.project], realSessions);
+      const activeProjectId = reconciled.resolveProjectId(action.project.id);
       return {
         ...state,
-        projects: [...realProjects, action.project],
-        sessions: realSessions,
-        activeProjectId: action.project.id,
-        activeSessionId: null,
+        projects: reconciled.projects,
+        sessions: reconciled.sessions,
+        activeProjectId,
+        activeSessionId:
+          reconciled.sessions.find((session) => session.projectId === activeProjectId)?.id ?? null,
       };
     }
-    case 'PROJECT_UPDATED':
+    case 'PROJECT_UPDATED': {
+      const projects = state.projects.some((project) => project.id === action.project.id)
+        ? [...state.projects, action.project]
+        : state.projects;
+      const reconciled = reconcileProjectState(projects, state.sessions);
       return {
         ...state,
-        projects: state.projects.map((project) =>
-          project.id === action.project.id ? action.project : project,
-        ),
+        projects: reconciled.projects,
+        sessions: reconciled.sessions,
+        activeProjectId: reconciled.resolveProjectId(state.activeProjectId),
       };
-    case 'PROJECT_SELECTED':
+    }
+    case 'PROJECT_SELECTED': {
+      const reconciled = reconcileProjectState(state.projects, state.sessions);
+      const activeProjectId =
+        reconciled.resolveProjectId(action.projectId) ??
+        reconciled.resolveProjectId(state.activeProjectId);
       return {
         ...state,
-        activeProjectId: action.projectId,
+        projects: reconciled.projects,
+        sessions: reconciled.sessions,
+        activeProjectId,
         activeSessionId:
-          state.sessions.find((session) => session.projectId === action.projectId)?.id ?? null,
+          reconciled.sessions.find((session) => session.projectId === activeProjectId)?.id ?? null,
       };
+    }
     case 'SESSION_CREATED':
       return {
         ...state,
@@ -585,9 +676,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'INSPECTOR_TAB':
       return { ...state, inspectorTab: action.tab, inspectorOpen: true };
     case 'COMMAND_PALETTE':
-      return { ...state, commandPaletteOpen: action.open };
+      return {
+        ...state,
+        commandPaletteOpen: action.open,
+        settingsOpen: action.open ? false : state.settingsOpen,
+      };
     case 'SETTINGS':
-      return { ...state, settingsOpen: action.open };
+      return {
+        ...state,
+        settingsOpen: action.open,
+        commandPaletteOpen: action.open ? false : state.commandPaletteOpen,
+      };
     case 'APP_INFO':
       return {
         ...state,

@@ -105,4 +105,46 @@ describe('Timeline', () => {
       '仅本地历史：界面保留了记录，但 Grok 代理上下文没有恢复。',
     );
   });
+
+  it('exposes plan entry states as text instead of relying on icons alone', () => {
+    render(
+      <Timeline
+        session={makeSession({
+          timeline: [
+            {
+              id: 'plan-1',
+              type: 'plan',
+              planId: 'plan-1',
+              format: 'items',
+              entries: [
+                {
+                  id: 'entry-1',
+                  content: '验证 Windows 安装包',
+                  status: 'in_progress',
+                  priority: 'medium',
+                },
+              ],
+              createdAt: 1,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('执行中：')).toHaveClass('visually-hidden');
+    expect(screen.getByText('验证 Windows 安装包')).toBeInTheDocument();
+  });
+
+  it('disables smooth scrolling when the user prefers reduced motion', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true })),
+    );
+
+    render(<Timeline session={makeSession()} />);
+
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: 'auto' }),
+    );
+  });
 });

@@ -90,6 +90,28 @@ describe('Grok child environment', () => {
     });
   });
 
+  it('canonicalizes case-insensitive Windows names and blocks duplicate aliases', () => {
+    const environment = buildGrokChildEnvironment(
+      {
+        Path: 'C:\\Windows\\System32',
+        PATH: 'C:\\attacker-shadow',
+        comspec: 'C:\\Windows\\System32\\cmd.exe',
+        grok_home: 'C:\\Users\\爱丽丝\\.grok',
+        xai_api_key: 'xai-key',
+        node_options: '--require C:\\inject.cjs',
+      },
+      [],
+      'win32',
+    );
+
+    expect(environment).toEqual({
+      PATH: 'C:\\Windows\\System32',
+      COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
+      GROK_HOME: 'C:\\Users\\爱丽丝\\.grok',
+      XAI_API_KEY: 'xai-key',
+    });
+  });
+
   it('allows explicitly selected variables without opening the rest of the environment', () => {
     const environment = buildGrokChildEnvironment(
       {
