@@ -380,12 +380,22 @@ function Get-UninstallEntriesForInstall([string]$InstallDirectory) {
   $normalizedExpected = [System.IO.Path]::GetFullPath($InstallDirectory).TrimEnd("\", "/")
   @(
     Get-UninstallEntries | Where-Object {
-      $installLocation = [string](Get-OptionalPropertyValue $_ "InstallLocation")
-      if ([string]::IsNullOrWhiteSpace($installLocation)) {
+      $registeredCommand = [string](Get-OptionalPropertyValue $_ "UninstallString")
+      if ([string]::IsNullOrWhiteSpace($registeredCommand)) {
+        return $false
+      }
+      $registeredExecutable = Get-CommandExecutable $registeredCommand
+      if ([string]::IsNullOrWhiteSpace($registeredExecutable)) {
         return $false
       }
       try {
-        $normalizedActual = [System.IO.Path]::GetFullPath($installLocation).TrimEnd("\", "/")
+        $registeredDirectory = [System.IO.Path]::GetDirectoryName(
+          [System.IO.Path]::GetFullPath($registeredExecutable)
+        )
+        if ([string]::IsNullOrWhiteSpace($registeredDirectory)) {
+          return $false
+        }
+        $normalizedActual = $registeredDirectory.TrimEnd("\", "/")
         return $normalizedActual.Equals(
           $normalizedExpected,
           [System.StringComparison]::OrdinalIgnoreCase
@@ -395,6 +405,21 @@ function Get-UninstallEntriesForInstall([string]$InstallDirectory) {
       }
     }
   )
+}
+
+function Write-UninstallRegistrySnapshot([string]$Destination) {
+  Get-UninstallEntries |
+    Select-Object -Property @(
+      "DisplayName"
+      "DisplayVersion"
+      "DisplayIcon"
+      "UninstallString"
+      "QuietUninstallString"
+      "PSPath"
+    ) |
+    Format-List |
+    Out-String -Width 4096 |
+    Set-Content $Destination -Encoding utf8NoBOM
 }
 
 function Get-UninstallKeyPaths {
@@ -600,11 +625,7 @@ function Write-Diagnostics {
     Out-String |
     Set-Content (Join-Path $diagnosticsPath "matching-processes.txt") -Encoding utf8NoBOM
 
-  Get-UninstallEntries |
-    Select-Object DisplayName, DisplayVersion, InstallLocation, UninstallString, PSPath |
-    Format-List |
-    Out-String |
-    Set-Content (Join-Path $diagnosticsPath "uninstall-registry.txt") -Encoding utf8NoBOM
+  Write-UninstallRegistrySnapshot (Join-Path $diagnosticsPath "uninstall-registry.txt")
 }
 
 try {
@@ -862,11 +883,18 @@ try {
   ) | Set-Content $summaryPath -Encoding utf8NoBOM
 } catch {
   $failure = $_
+  try {
+    Write-UninstallRegistrySnapshot (
+      Join-Path $diagnosticsPath "uninstall-registry-before-cleanup.txt"
+    )
+  } catch {
+    Write-Warning "Could not snapshot uninstall registry before cleanup: $($_.Exception.Message)"
+  }
   @(
     "Windows package verification failed."
     "Version: $ExpectedVersion"
-    "Error: $($_.Exception.Message)"
-    "Script stack: $($_.ScriptStackTrace)"
+    "Error: $($failure.Exception.Message)"
+    "Script stack: $($failure.ScriptStackTrace)"
   ) | Set-Content $summaryPath -Encoding utf8NoBOM
 } finally {
   if (
