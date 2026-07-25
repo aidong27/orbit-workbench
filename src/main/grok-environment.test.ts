@@ -17,29 +17,33 @@ describe('Grok child environment', () => {
   });
 
   it('keeps the portable runtime, Grok, locale, certificate, and Windows variables', () => {
-    const environment = buildGrokChildEnvironment({
-      OS: 'Windows_NT',
-      PATH: '/usr/bin:/bin',
-      HOME: '/Users/alice',
-      USERPROFILE: 'C:\\Users\\Alice',
-      TMP: '/tmp',
-      TEMP: 'C:\\Temp',
-      TMPDIR: '/private/tmp',
-      LANG: 'zh_CN.UTF-8',
-      LC_ALL: 'zh_CN.UTF-8',
-      LC_MESSAGES: 'zh_CN.UTF-8',
-      GROK_BINARY: '/opt/grok/bin/grok',
-      GROK_SANDBOX: 'strict',
-      XAI_API_KEY: 'xai-key',
-      SSL_CERT_FILE: '/etc/ssl/cert.pem',
-      SSL_CERT_DIR: '/etc/ssl/certs',
-      NODE_EXTRA_CA_CERTS: '/etc/ssl/company.pem',
-      SystemRoot: 'C:\\Windows',
-      ComSpec: 'C:\\Windows\\System32\\cmd.exe',
-      PATHEXT: '.COM;.EXE;.BAT;.CMD',
-      APPDATA: 'C:\\Users\\Alice\\AppData\\Roaming',
-      LOCALAPPDATA: 'C:\\Users\\Alice\\AppData\\Local',
-    });
+    const environment = buildGrokChildEnvironment(
+      {
+        OS: 'Windows_NT',
+        PATH: '/usr/bin:/bin',
+        HOME: '/Users/alice',
+        USERPROFILE: 'C:\\Users\\Alice',
+        TMP: '/tmp',
+        TEMP: 'C:\\Temp',
+        TMPDIR: '/private/tmp',
+        LANG: 'zh_CN.UTF-8',
+        LC_ALL: 'zh_CN.UTF-8',
+        LC_MESSAGES: 'zh_CN.UTF-8',
+        GROK_BINARY: '/opt/grok/bin/grok',
+        GROK_SANDBOX: 'strict',
+        XAI_API_KEY: 'xai-key',
+        SSL_CERT_FILE: '/etc/ssl/cert.pem',
+        SSL_CERT_DIR: '/etc/ssl/certs',
+        NODE_EXTRA_CA_CERTS: '/etc/ssl/company.pem',
+        SystemRoot: 'C:\\Windows',
+        ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+        PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        APPDATA: 'C:\\Users\\Alice\\AppData\\Roaming',
+        LOCALAPPDATA: 'C:\\Users\\Alice\\AppData\\Local',
+      },
+      [],
+      'linux',
+    );
 
     expect(environment).toEqual({
       OS: 'Windows_NT',
@@ -67,16 +71,20 @@ describe('Grok child environment', () => {
   });
 
   it('accepts common proxy variables in upper, lower, and mixed case', () => {
-    const environment = buildGrokChildEnvironment({
-      HTTP_PROXY: 'http://upper-http',
-      http_proxy: 'http://lower-http',
-      Https_Proxy: 'http://mixed-https',
-      https_proxy: 'http://lower-https',
-      ALL_PROXY: 'socks5://upper-all',
-      all_proxy: 'socks5://lower-all',
-      NO_PROXY: 'localhost,127.0.0.1',
-      no_proxy: '.internal.example',
-    });
+    const environment = buildGrokChildEnvironment(
+      {
+        HTTP_PROXY: 'http://upper-http',
+        http_proxy: 'http://lower-http',
+        Https_Proxy: 'http://mixed-https',
+        https_proxy: 'http://lower-https',
+        ALL_PROXY: 'socks5://upper-all',
+        all_proxy: 'socks5://lower-all',
+        NO_PROXY: 'localhost,127.0.0.1',
+        no_proxy: '.internal.example',
+      },
+      [],
+      'linux',
+    );
 
     expect(environment).toEqual({
       HTTP_PROXY: 'http://upper-http',
@@ -87,6 +95,30 @@ describe('Grok child environment', () => {
       all_proxy: 'socks5://lower-all',
       NO_PROXY: 'localhost,127.0.0.1',
       no_proxy: '.internal.example',
+    });
+  });
+
+  it('canonicalizes proxy aliases on Windows and keeps the first value', () => {
+    const environment = buildGrokChildEnvironment(
+      {
+        HTTP_PROXY: 'http://upper-http',
+        http_proxy: 'http://shadow-http',
+        Https_Proxy: 'http://mixed-https',
+        https_proxy: 'http://shadow-https',
+        ALL_PROXY: 'socks5://upper-all',
+        all_proxy: 'socks5://shadow-all',
+        NO_PROXY: 'localhost,127.0.0.1',
+        no_proxy: '.shadow.example',
+      },
+      [],
+      'win32',
+    );
+
+    expect(environment).toEqual({
+      HTTP_PROXY: 'http://upper-http',
+      HTTPS_PROXY: 'http://mixed-https',
+      ALL_PROXY: 'socks5://upper-all',
+      NO_PROXY: 'localhost,127.0.0.1',
     });
   });
 
