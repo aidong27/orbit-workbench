@@ -7,6 +7,8 @@ export interface ConnectionView {
   tone: 'neutral' | 'progress' | 'success' | 'warning' | 'error';
 }
 
+export const MAX_DIAGNOSTIC_FIELD_LENGTH = 2_000;
+
 export function connectionView(
   status: ConnectionStatus,
   issueCode: ConnectionIssueCode | null = null,
@@ -96,6 +98,56 @@ export function cleanDesktopError(error: unknown, fallback: string): string {
     .trim();
 }
 
+export function redactDiagnosticText(value: string, platform: string): string {
+  if (platform === 'win32') {
+    return value.replace(/[a-z]:[\\/]Users[\\/][^\\/\r\n]+/giu, '%USERPROFILE%');
+  }
+  if (platform === 'darwin') {
+    return value.replace(/\/Users\/[^/\r\n]+/gu, '~');
+  }
+  if (platform === 'linux') {
+    return value.replace(/\/home\/[^/\r\n]+/gu, '~');
+  }
+  return value;
+}
+
+export function sanitizeDiagnosticField(value: string, platform: string): string {
+  const redactedPaths = redactDiagnosticText(value, platform);
+  const redactedUrlCredentials = redactedPaths.replace(
+    /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@/\s]+@/giu,
+    '$1[凭据已隐藏]@',
+  );
+  const redactedAuthorization = redactedUrlCredentials.replace(
+    /((?:authorization)\s*[=:]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|(?:(?:bearer|basic)\s+)?[^\s,;}"']+)/giu,
+    '$1[已隐藏]',
+  );
+  const redactedNamedSecrets = redactedAuthorization.replace(
+    /(["']?(?:api[_-]?key|token|secret|password)["']?\s*[=:]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}"']+)/giu,
+    '$1[已隐藏]',
+  );
+  const redacted = redactedNamedSecrets.replace(
+    /\b(?:xai-|sk-|ghp_|github_pat_)[A-Za-z0-9_-]{8,}\b/gu,
+    '[凭据已隐藏]',
+  );
+  const compact = Array.from(redacted, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 32 ||
+      (codePoint >= 0x7f && codePoint <= 0x9f) ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      (codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069)
+      ? ' '
+      : character;
+  })
+    .join('')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (compact.length <= MAX_DIAGNOSTIC_FIELD_LENGTH) return compact;
+  const suffix = '…[已截断]';
+  return `${compact.slice(0, MAX_DIAGNOSTIC_FIELD_LENGTH - suffix.length)}${suffix}`;
+}
+
 export function buildConnectionDiagnostic(input: {
   status: ConnectionStatus;
   detail: string;
@@ -108,15 +160,25 @@ export function buildConnectionDiagnostic(input: {
   platform: string;
   arch: string;
 }): string {
+  const clean = (value: string | null, fallback: string): string =>
+    value ? sanitizeDiagnosticField(value, input.platform) || fallback : fallback;
+  const binaryPath = clean(input.binaryPath, '未检测到');
+  const detail = clean(input.detail, '无');
+  const cliVersion = clean(input.cliVersion, '未知');
+  const agent = [input.agentName, input.agentVersion]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => sanitizeDiagnosticField(value, input.platform))
+    .filter(Boolean)
+    .join(' ');
   return [
     '星轨工作台连接诊断',
-    `应用版本: ${input.appVersion || '未知'}`,
-    `平台: ${input.platform || '未知'}/${input.arch || '未知'}`,
+    `应用版本: ${clean(input.appVersion, '未知')}`,
+    `平台: ${clean(input.platform, '未知')}/${clean(input.arch, '未知')}`,
     `连接状态: ${input.status}`,
     `问题代码: ${input.issueCode ?? '无'}`,
-    `CLI 路径: ${input.binaryPath ?? '未检测到'}`,
-    `CLI 版本: ${input.cliVersion ?? '未知'}`,
-    `Agent: ${[input.agentName, input.agentVersion].filter(Boolean).join(' ') || '未知'}`,
-    `详情: ${input.detail || '无'}`,
+    `CLI 路径: ${binaryPath}`,
+    `CLI 版本: ${cliVersion}`,
+    `Agent: ${agent || '未知'}`,
+    `详情: ${detail}`,
   ].join('\n');
 }

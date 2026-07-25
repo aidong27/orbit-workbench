@@ -51,11 +51,15 @@ const WINDOWS_RUNTIME_NAMES = new Set([
   'WINDIR',
 ]);
 
-function isDefaultAllowed(name: string): boolean {
-  if (DEFAULT_ALLOWED_NAMES.has(name)) return true;
-  if (name.startsWith('LC_') || name.startsWith('GROK_')) return true;
-
+function isDefaultAllowed(name: string, platform: NodeJS.Platform): boolean {
   const normalizedName = name.toUpperCase();
+  if (
+    DEFAULT_ALLOWED_NAMES.has(platform === 'win32' ? normalizedName : name) ||
+    (platform === 'win32' ? normalizedName : name).startsWith('LC_') ||
+    (platform === 'win32' ? normalizedName : name).startsWith('GROK_')
+  ) {
+    return true;
+  }
   return PROXY_NAMES.has(normalizedName) || WINDOWS_RUNTIME_NAMES.has(normalizedName);
 }
 
@@ -67,16 +71,21 @@ function isDefaultAllowed(name: string): boolean {
 export function buildGrokChildEnvironment(
   source: Readonly<Record<string, unknown>>,
   extraAllowedNames: readonly string[] = [],
+  platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
-  const extraAllowed = new Set(extraAllowedNames);
+  const extraAllowed = new Set(
+    extraAllowedNames.map((name) => (platform === 'win32' ? name.toUpperCase() : name)),
+  );
   const environment: NodeJS.ProcessEnv = {};
 
   for (const [name, value] of Object.entries(source)) {
     if (typeof value !== 'string') continue;
+    const normalizedName = platform === 'win32' ? name.toUpperCase() : name;
     if (ALWAYS_BLOCKED_NAMES.has(name.toUpperCase())) continue;
-    if (!isDefaultAllowed(name) && !extraAllowed.has(name)) continue;
+    if (!isDefaultAllowed(name, platform) && !extraAllowed.has(normalizedName)) continue;
+    if (Object.hasOwn(environment, normalizedName)) continue;
 
-    Object.defineProperty(environment, name, {
+    Object.defineProperty(environment, normalizedName, {
       configurable: true,
       enumerable: true,
       value,

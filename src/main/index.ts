@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
-import { basename, isAbsolute } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import {
@@ -13,19 +13,30 @@ import {
   ipcMain,
   Menu,
   type OpenDialogOptions,
+  screen,
   session,
   shell,
 } from 'electron';
 import type { ProjectSummary } from '../shared/types';
 import { isAllowedExternalUrl } from '../shared/url';
+import { parsePorcelainV1Z } from './git-status';
 import { classifyConnectionIssue, GrokAcpManager, inspectGrokBinary } from './grok-acp';
 import { permissionResolution, requiredString } from './ipc-validation';
 import { contentSecurityPolicy, isTrustedMainFrame } from './security';
+import { windowSizeForWorkArea } from './window-sizing';
 
 const execFileAsync = promisify(execFile);
 const APP_ID = 'cn.aidong27.orbit-workbench';
 const SMOKE_TEST = process.argv.includes('--smoke-test');
-const grok = new GrokAcpManager(app.getVersion());
+const SMOKE_REPORT_USER_DATA = SMOKE_TEST && process.argv.includes('--smoke-report-user-data');
+const SMOKE_USER_DATA_PREFIX = 'ORBIT_SMOKE_USER_DATA_BASE64:';
+const windowsJobRunnerPath =
+  process.platform === 'win32'
+    ? app.isPackaged
+      ? join(process.resourcesPath, 'windows-job-runner.exe')
+      : join(app.getAppPath(), 'build', 'windows-job-runner.exe')
+    : null;
+const grok = new GrokAcpManager(app.getVersion(), windowsJobRunnerPath);
 const trustedWebContentsIds = new Set<number>();
 let smokeTestFinished = false;
 let smokeTestTimer: NodeJS.Timeout | null = null;
@@ -82,7 +93,7 @@ async function inspectProject(inputPath: unknown): Promise<ProjectSummary> {
 
   const [branch, status, unstaged, staged] = await Promise.all([
     runGit(path, ['branch', '--show-current']),
-    runGit(path, ['status', '--short']),
+    runGit(path, ['status', '--porcelain=v1', '-z']),
     runGit(path, ['diff', '--stat']),
     runGit(path, ['diff', '--cached', '--stat']),
   ]).catch((error: unknown) => {
@@ -94,7 +105,7 @@ async function inspectProject(inputPath: unknown): Promise<ProjectSummary> {
         : '无法读取 Git 工作区状态。',
     );
   });
-  const statusLines = status ? status.split('\n') : [];
+  const statusLines = parsePorcelainV1Z(status);
   return {
     path,
     name: basename(path),
@@ -107,11 +118,12 @@ async function inspectProject(inputPath: unknown): Promise<ProjectSummary> {
 }
 
 function createWindow(): BrowserWindow {
+  const windowSize = windowSizeForWorkArea(
+    process.platform,
+    screen.getPrimaryDisplay().workAreaSize,
+  );
   const windowOptions: BrowserWindowConstructorOptions = {
-    width: 1500,
-    height: 960,
-    minWidth: 980,
-    minHeight: 680,
+    ...windowSize,
     show: false,
     backgroundColor: '#141414',
     title: '星轨工作台',
@@ -276,6 +288,12 @@ function startSmokeTestTimeout(): void {
   );
 }
 
+function reportSmokeTestUserDataPath(): void {
+  if (!SMOKE_REPORT_USER_DATA) return;
+  const encodedPath = Buffer.from(app.getPath('userData'), 'utf8').toString('base64');
+  console.log(`${SMOKE_USER_DATA_PREFIX}${encodedPath}`);
+}
+
 function configureSecurityHeaders(): void {
   const policy = contentSecurityPolicy(app.isPackaged);
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -310,6 +328,7 @@ if (!primaryInstance) {
     configureSecurityHeaders();
     registerIpc();
     startSmokeTestTimeout();
+    reportSmokeTestUserDataPath();
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -322,7 +341,7 @@ app.on('window-all-closed', () => {
     app.quit();
     return;
   }
-  void grok.disconnect();
+  void grok.disconnect().catch(() => undefined);
 });
 
 let shutdownStarted = false;
@@ -331,5 +350,11 @@ app.on('before-quit', (event) => {
   if (shutdownStarted) return;
   event.preventDefault();
   shutdownStarted = true;
-  void grok.shutdown().finally(() => app.quit());
+  void grok.shutdown().then(
+    () => app.quit(),
+    () => {
+      console.error('[shutdown] Local agent cleanup did not confirm after retry; exiting the app.');
+      app.quit();
+    },
+  );
 });

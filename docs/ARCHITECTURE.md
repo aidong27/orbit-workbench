@@ -80,10 +80,13 @@ CLI 查找顺序：
 CLI 查找顺序：
 
 1. `GROK_BINARY` 指向的 `grok.exe`；
-2. `%USERPROFILE%\.grok\bin\grok.exe`；
-3. 通过 `where.exe grok.exe` 查询 `PATH`。
+2. `GROK_BIN_DIR` 下的 `grok.exe`；
+3. `%USERPROFILE%\.grok\bin\grok.exe`；
+4. 直接枚举 `PATH` 中每个绝对目录下的 `grok.exe`。
 
-Windows 只接受 `.exe` 形式的 CLI 路径。子进程以隐藏窗口启动；受控退出时使用 `taskkill.exe /t /f` 请求终止对应 PID 的进程树，降低 ACP 后台进程遗留风险。
+Windows 只接受绝对路径、无控制字符的 `.exe`，不执行 `.cmd`/`.bat` 包装器，也不通过 `PATH` 解析 `where.exe`。主进程不直接启动 Grok，而是启动仓库内可审计的 x64 `windows-job-runner.exe`：监督器用 `CREATE_SUSPENDED` 创建 Grok，将其加入启用 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的私有 Job Object 后再恢复运行，并同时等待 Electron 父进程。这样即使 Grok leader 先退出、监督器被强制结束或 Electron 崩溃，关闭最终 Job handle 仍由 Windows 终止剩余后代。受控退出先关闭 ACP stdin 并等待 CLI 正常收尾，超时后才使用 `%SystemRoot%\System32\taskkill.exe` 的绝对路径结束监督器，绝不从 `PATH` 查找系统终止工具。
+
+原生监督器源代码位于 `native/windows-job-runner.c`，固定的 PE32+ x64 二进制位于 `build/windows-job-runner.exe`。配置检查验证源代码的 Job Object 安全标志、PE 头和 SHA-256；Windows 原生 runner 还会执行安装包内的监督器，验证 stdio 透明代理和“直接子进程先退出、后代仍存活”的清理场景。
 
 ## ACP 生命周期
 
@@ -133,10 +136,11 @@ Windows 只接受 `.exe` 形式的 CLI 路径。子进程以隐藏窗口启动�
 - macOS arm64：DMG 与 ZIP；
 - `asar` 封装应用代码；
 - Electron fuses 禁用 RunAsNode、Node options 和 CLI 调试参数，并启用 ASAR 完整性校验及仅从 ASAR 加载；
-- CI 固定第三方 Action 的提交 SHA，在干净环境中构建两个平台，启动最终 DMG、ZIP、NSIS 与 Portable 产物，并生成 SHA-256 清单。
+- CI 固定第三方 Action 的提交 SHA，在干净环境中构建两个平台，启动最终 DMG、ZIP、NSIS 与 Portable 产物，并生成 SHA-256 清单；
+- Windows runner 会在中文和空格路径中验证安装、快捷方式、卸载注册、Portable、Job Object 后代清理、残留进程和精确产物集合，普通步骤失败时保留诊断 artifact；
 - 生产依赖与 Electron 的完整许可证正文、Chromium notices 随最终包分发，并由 `pnpm licenses:check` 与平台工作流验证。
 
-当前 Alpha 的 Windows 包尚未商业代码签名；macOS 包仅使用 ad-hoc 签名，尚未使用 Apple Developer ID 签名或公证。可验证更新和发布来源证明属于正式发布前的独立安全里程碑。
+当前 Alpha 的 Windows 包尚未进行 Authenticode 签名；macOS 包仅使用 ad-hoc 签名，尚未使用 Apple Developer ID 签名或公证。可验证更新和发布来源证明属于正式发布前的独立安全里程碑。
 
 ## 已知范围
 

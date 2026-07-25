@@ -1,5 +1,5 @@
 import { Bot, GitBranch, PanelRightClose, PanelRightOpen, RefreshCw, Sparkles } from 'lucide-react';
-import type { ConnectionStatus } from '../../../shared/types';
+import type { ConnectionIssueCode, ConnectionStatus } from '../../../shared/types';
 import { connectionView } from '../lib/connection';
 import { modeLabel, statusLabel } from '../lib/format';
 import type { WorkSession, WorkspaceProject } from '../state/model';
@@ -9,6 +9,7 @@ interface TopBarProps {
   session: WorkSession | null;
   inspectorOpen: boolean;
   connectionStatus: ConnectionStatus;
+  connectionIssueCode: ConnectionIssueCode | null;
   onOpenConnectionCenter: () => void;
   onToggleInspector: () => void;
   onRefreshProject: () => void;
@@ -19,6 +20,7 @@ export function TopBar({
   session,
   inspectorOpen,
   connectionStatus,
+  connectionIssueCode,
   onOpenConnectionCenter,
   onToggleInspector,
   onRefreshProject,
@@ -56,11 +58,11 @@ export function TopBar({
           className={`engine-pill engine-pill--${connectionStatus}`}
           onClick={onOpenConnectionCenter}
           title="打开 Grok 连接中心"
-          aria-label={`Grok Build：${connectionView(connectionStatus).label}，打开连接中心`}
+          aria-label={`Grok Build：${connectionView(connectionStatus, connectionIssueCode).label}，打开连接中心`}
         >
           <span className="engine-pill__pulse" />
           <Bot size={14} />
-          <span>Grok {connectionView(connectionStatus).label}</span>
+          <span>Grok {connectionView(connectionStatus, connectionIssueCode).label}</span>
         </button>
         <div className="mode-pill" title="会话模式可在输入框中切换">
           <Sparkles size={13} />

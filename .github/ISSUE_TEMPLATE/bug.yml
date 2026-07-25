@@ -17,7 +17,7 @@ body:
     id: app-version
     attributes:
       label: 星轨工作台版本
-      placeholder: 例如 0.2.0-alpha.2
+      placeholder: 例如 0.2.0-alpha.4
     validations:
       required: true
   - type: dropdown

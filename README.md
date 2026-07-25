@@ -46,7 +46,7 @@
 
 ## 平台支持
 
-当前版本为 **`0.2.0-alpha.3`**。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
+当前源码版本为 **`0.2.0-alpha.4`**；可下载版本与最新公开标签以 [Releases](https://github.com/aidong27/orbit-workbench/releases) 页面为准。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
 
 | 平台 | 架构 | 构建产物 | 状态 |
 | --- | --- | --- | --- |
@@ -58,25 +58,33 @@
 
 ### 1. 准备 Grok Build CLI
 
-请先从 [xAI 的 Grok Build 项目](https://github.com/xai-org/grok-build)安装并完成登录，然后确认：
+请先按 [xAI 官方 Grok Build 文档](https://docs.x.ai/build/overview)安装并完成登录，然后确认：
 
 ```bash
 grok --version
 grok login
 ```
 
-Windows 版本需要可以直接执行的 `grok.exe`。应用会依次检查 `GROK_BINARY`、用户目录下的默认安装位置和系统 `PATH`；如果没有自动识别，请把 `GROK_BINARY` 设置为 `grok.exe` 的绝对路径。
+Windows 可在 PowerShell 中运行 xAI 官方安装命令：
+
+```powershell
+irm https://x.ai/cli/install.ps1 | iex
+```
+
+这条管道会下载后立即执行脚本；希望先检查内容时，请先单独打开 `https://x.ai/cli/install.ps1` 审阅，再决定是否运行。界面同时提供 xAI 官方文档入口。
+
+应用会依次检查 `GROK_BINARY`、`GROK_BIN_DIR`、`%USERPROFILE%\.grok\bin\grok.exe`，再直接枚举系统 `PATH` 中的绝对目录；只接受以 `.exe` 结尾的绝对文件路径，不会执行 `.cmd` 或 `.bat` 包装器。界面在未找到 CLI 时也会显示同一条可复制、不会自动执行的安装指引。
 
 ### 2. 下载桌面应用
 
-前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)，根据系统下载：
+前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)。仅当页面已经列出 `v0.2.0-alpha.4` 时，才按系统下载对应文件；若该预发布版本尚未出现，请从源码构建，不要把旧版本文件改名后使用：
 
-- Windows x64：`Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Setup.exe`
-- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.3-Windows-x64-Portable.exe`
-- macOS arm64：`Orbit-Workbench-0.2.0-alpha.3-macOS-arm64.dmg` 或 `.zip`
+- Windows x64：`Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe`
+- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe`
+- macOS arm64：`Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.dmg` 或 `.zip`
 
 > [!WARNING]
-> 当前 Alpha 安装包尚未进行 Windows 代码签名或 Apple Developer ID 公证，系统可能显示来源警告。请只从本仓库 Releases 下载，并在运行前核对发布页提供的校验值；无法确认来源时请改为从源码构建。
+> 当前 Alpha 安装包尚未进行 Windows Authenticode 签名；macOS 包也尚未进行 Apple Developer ID 签名或公证。系统可能显示来源警告。请只从本仓库 Releases 下载，并在运行前核对发布页提供的校验值；无法确认来源时请改为从源码构建。
 
 更完整的安装、校验与故障排查见[安装指南](docs/INSTALLATION.md)。
 
@@ -131,6 +139,7 @@ Electron 主进程（路径验证、Git 检查、权限队列）
 - 渲染进程启用沙箱和上下文隔离，不具备任意文件系统或 shell 权限。
 - ACP SDK 原始对象先在主进程转换为类型化、限长且可安全显示的事件，renderer 不直接解释 SDK 协议对象。
 - 权限弹窗会显示来源工作区、路径和会话；超大、过深或无法安全归一化的载荷不会原样进入 renderer。
+- Windows 通过可审计、固定哈希的 x64 Job Object 监督器约束整棵 Grok 进程树；代理或 Electron 意外退出后不会只凭 leader 状态假定后代已经结束。
 - 本地保存界面偏好、工作区路径、会话标题、裁剪后的时间线，以及最近一次 Git 分支、文件状态列表和差异统计快照；这些数据使用带版本号和校验的 v3 格式，但当前不加密。
 - ACP 会话 ID、权限请求和工具原始输入/输出不会跨进程持久化。
 - 重启后保存的旧时间线只作为“仅本地历史”展示，不代表上游代理上下文已经恢复；要继续工作需显式新建任务。
@@ -149,7 +158,7 @@ docs/            架构、安装和发布检查资料
 build/           原创应用图标与平台打包资源
 ```
 
-进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [0.2.0-alpha.3 发布说明](docs/RELEASE_NOTES.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
+进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [0.2.0-alpha.4 发布说明](docs/RELEASE_NOTES.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
 
 ## 参与项目
 

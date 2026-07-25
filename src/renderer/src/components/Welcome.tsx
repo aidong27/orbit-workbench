@@ -2,6 +2,7 @@ import {
   ArrowRight,
   Check,
   CircleAlert,
+  Copy,
   ExternalLink,
   FolderOpen,
   RefreshCw,
@@ -9,13 +10,17 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import type { ConnectionIssueCode, ConnectionStatus } from '../../../shared/types';
+import { copyText } from '../lib/clipboard';
 import { connectionView } from '../lib/connection';
+import { WINDOWS_GROK_INSTALL_COMMAND } from '../lib/grok-install';
+import { useCopyFeedback } from '../lib/use-copy-feedback';
 import { OrbitMark } from './OrbitMark';
 
 interface WelcomeProps {
   connectionStatus: ConnectionStatus;
   connectionDetail: string;
   connectionIssueCode: ConnectionIssueCode | null;
+  platform: string;
   binaryPath: string | null;
   cliVersion: string | null;
   onRetryConnection: () => void;
@@ -34,12 +39,14 @@ export function Welcome({
   connectionStatus,
   connectionDetail,
   connectionIssueCode,
+  platform,
   binaryPath,
   cliVersion,
   onRetryConnection,
   onOpenWorkspace,
   onOpenConnectionCenter,
 }: WelcomeProps) {
+  const [installCopyStatus, reportInstallCopy] = useCopyFeedback();
   const connection = connectionView(connectionStatus, connectionIssueCode);
   const cliDetected = Boolean(binaryPath);
   const connecting =
@@ -48,6 +55,7 @@ export function Welcome({
     connectionStatus === 'connecting';
   const connected = connectionStatus === 'ready';
   const failed = connectionStatus === 'offline' || connectionStatus === 'error';
+  const showWindowsInstall = platform === 'win32' && connectionIssueCode === 'binary_missing';
 
   return (
     <div className="welcome-scroll">
@@ -103,7 +111,7 @@ export function Welcome({
           </li>
         </ol>
 
-        <section className="connection-panel" aria-live="polite">
+        <section className="connection-panel">
           <div className="connection-header">
             <div>
               <h2>{connection.title}</h2>
@@ -124,6 +132,9 @@ export function Welcome({
                     : 'is-error'
                   : 'is-checking'
             }`}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
           >
             <span className="connection-status__icon">
               {connected ? <Check size={17} /> : connecting ? <RefreshCw size={16} /> : '!'}
@@ -139,8 +150,49 @@ export function Welcome({
               <dt>CLI 版本</dt>
               <dd>{cliVersion ?? '已检测，版本未知'}</dd>
               <dt>程序路径</dt>
-              <dd>{binaryPath ?? '未检测到'}</dd>
+              <dd dir="ltr" title={binaryPath ?? undefined}>
+                {binaryPath ?? '未检测到'}
+              </dd>
             </dl>
+          )}
+
+          {showWindowsInstall && (
+            <div className="windows-install-guide">
+              <strong>在 PowerShell 中安装 Grok CLI</strong>
+              <p>
+                此命令会从 x.ai 下载并执行安装脚本。建议先打开脚本地址审阅内容，再在 PowerShell
+                中运行；工作台只负责复制。
+              </p>
+              <code dir="ltr">{WINDOWS_GROK_INSTALL_COMMAND}</code>
+              <a href="https://x.ai/cli/install.ps1" target="_blank" rel="noreferrer">
+                运行前审阅 install.ps1 <ExternalLink size={13} />
+              </a>
+              <button
+                type="button"
+                onClick={() =>
+                  void copyText(WINDOWS_GROK_INSTALL_COMMAND).then((copied) => {
+                    reportInstallCopy(copied);
+                  })
+                }
+              >
+                <Copy size={14} />{' '}
+                {installCopyStatus === 'success'
+                  ? '安装命令已复制'
+                  : installCopyStatus === 'failure'
+                    ? '复制失败，请手动选择命令'
+                    : '复制 PowerShell 安装命令'}
+              </button>
+              {installCopyStatus !== 'idle' && (
+                <span className="visually-hidden" role="status" aria-live="polite">
+                  {installCopyStatus === 'success'
+                    ? 'PowerShell 安装命令已复制'
+                    : 'PowerShell 安装命令复制失败'}
+                </span>
+              )}
+              <small>
+                工作台不会自动执行此命令；默认安装位置为 %USERPROFILE%\.grok\bin\grok.exe。
+              </small>
+            </div>
           )}
 
           <div className="connection-actions">

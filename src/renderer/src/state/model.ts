@@ -219,12 +219,26 @@ export function makeProject(
   summary: ProjectSummary,
   existingProjects: WorkspaceProject[] = [],
 ): WorkspaceProject {
-  const existing = existingProjects.find((project) => project.path === summary.path);
+  const pathKey = workspacePathKey(summary.path);
+  const existing = existingProjects.find((project) => workspacePathKey(project.path) === pathKey);
   return {
     ...summary,
     id: existing?.id ?? crypto.randomUUID(),
     addedAt: Date.now(),
   };
+}
+
+export function workspacePathKey(path: string): string {
+  const windowsLike =
+    /^[a-z]:(?:[\\/]|$)/iu.test(path) || path.startsWith('\\\\') || path.startsWith('//');
+  let normalized = windowsLike ? path.replaceAll('\\', '/') : path;
+  if (/^\/\/\?\/unc\//iu.test(normalized)) {
+    normalized = `//${normalized.slice(8)}`;
+  } else if (normalized.startsWith('//?/')) {
+    normalized = normalized.slice(4);
+  }
+  normalized = /^\/+$/u.test(normalized) ? '/' : normalized.replace(/\/+$/u, '');
+  return windowsLike ? normalized.toLowerCase() : normalized;
 }
 
 export function makeSession(projectId: string): WorkSession {

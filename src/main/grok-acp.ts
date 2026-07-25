@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { Readable, Writable } from 'node:stream';
 import { promisify } from 'node:util';
@@ -24,7 +24,7 @@ import {
   sanitizeToolCall,
   sanitizeTurnUsage,
 } from './acp-event-sanitizer';
-import { sanitizeDiagnostic } from './grok-diagnostics';
+import { sanitizeDiagnosticLine } from './grok-diagnostics';
 import { buildGrokChildEnvironment } from './grok-environment';
 import {
   firstLookupResult,
@@ -33,7 +33,9 @@ import {
   pathLookupCommand,
 } from './grok-platform';
 import { limitNdjsonFrameBytes } from './ndjson-frame-limit';
+import { gracefullyShutdownProcess } from './process-lifecycle';
 import { secureNdjsonStream } from './secure-ndjson-stream';
+import { terminateWindowsProcessTree, windowsJobRunnerCommand } from './windows-process';
 
 const execFileAsync = promisify(execFile);
 const CONNECTION_TIMEOUT_MS = 20_000;
@@ -50,6 +52,15 @@ const MAX_EARLY_EVENTS_PER_SESSION = 64;
 const MAX_EARLY_EVENTS_TOTAL = 256;
 const MAX_PENDING_PERMISSIONS_PER_TURN = 8;
 const MAX_PENDING_PERMISSIONS_TOTAL = 32;
+const MAX_VERSION_OUTPUT_BYTES = 16 * 1_024;
+const MAX_PERMISSION_OPTIONS = 16;
+const MAX_PERMISSION_OPTION_ID_CHARACTERS = 4_096;
+const PERMISSION_OPTION_KINDS = new Set([
+  'allow_once',
+  'allow_always',
+  'reject_once',
+  'reject_always',
+]);
 
 class OperationTimeoutError extends Error {}
 
@@ -115,7 +126,12 @@ function deferredError(): { promise: Promise<never>; reject: (error: Error) => v
 }
 
 function safeErrorDetail(error: unknown, fallback: string): string {
-  return sanitizeDiagnostic(error instanceof Error ? error.message : fallback, homedir());
+  return sanitizeDiagnosticLine(
+    error instanceof Error ? error.message : fallback,
+    homedir(),
+    fallback,
+    4_000,
+  );
 }
 
 function containsControlCharacters(value: string): boolean {
@@ -158,11 +174,11 @@ function sanitizeAgentModes(modes: acp.SessionModeState | null | undefined): {
     modeIds.add(id);
     return {
       id,
-      name: sanitizeDiagnostic(mode.name, homedir()).slice(0, 512),
+      name: sanitizeDiagnosticLine(mode.name, homedir(), '未命名模式', 512),
       description:
         mode.description === undefined || mode.description === null
           ? mode.description
-          : sanitizeDiagnostic(mode.description, homedir()).slice(0, 1_000),
+          : sanitizeDiagnosticLine(mode.description, homedir(), '', 1_000),
     };
   });
   const currentModeId = validateModeId(modes.currentModeId);
@@ -174,7 +190,7 @@ function sanitizeAgentModes(modes: acp.SessionModeState | null | undefined): {
 
 function safeMetadata(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
-  return sanitizeDiagnostic(value, homedir()).slice(0, 512);
+  return sanitizeDiagnosticLine(value, homedir(), '', 512) || undefined;
 }
 
 export function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
@@ -196,6 +212,7 @@ export function settlesWithin(promise: Promise<void>, timeoutMs: number): Promis
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
+    if (!(await stat(path)).isFile()) return false;
     await access(path, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
     return true;
   } catch {
@@ -203,31 +220,15 @@ async function isExecutable(path: string): Promise<boolean> {
   }
 }
 
-function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.removeListener('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    const onExit = (): void => {
-      clearTimeout(timer);
-      resolve(true);
-    };
-    child.once('exit', onExit);
-  });
-}
-
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function terminateProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (process.platform === 'win32' && child.pid) {
-    await execFileAsync('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
-      timeout: 5_000,
-      windowsHide: true,
-    }).catch(() => child.kill());
+  if (process.platform === 'win32') {
+    if (!(await terminateWindowsProcessTree(child))) {
+      throw new Error('无法确认 Grok ACP Windows 进程已结束。');
+    }
     return;
   }
   if (!child.pid) return;
@@ -258,8 +259,49 @@ export function permissionOutcome(
   return { outcome: { outcome: 'selected', optionId: originalOptionId } };
 }
 
+export function sanitizePermissionOptions(options: readonly acp.PermissionOption[]): Array<{
+  safeOptionId: string;
+  originalOptionId: string;
+  name: string;
+  kind: acp.PermissionOptionKind;
+}> | null {
+  if (!Array.isArray(options) || options.length === 0 || options.length > MAX_PERMISSION_OPTIONS) {
+    return null;
+  }
+  const originalIds = new Set<string>();
+  const sanitized = [];
+  for (const option of options) {
+    if (
+      !option ||
+      typeof option.optionId !== 'string' ||
+      typeof option.name !== 'string' ||
+      typeof option.kind !== 'string' ||
+      option.optionId.length === 0 ||
+      option.optionId.length > MAX_PERMISSION_OPTION_ID_CHARACTERS ||
+      containsControlCharacters(option.optionId) ||
+      originalIds.has(option.optionId) ||
+      !PERMISSION_OPTION_KINDS.has(option.kind)
+    ) {
+      return null;
+    }
+    originalIds.add(option.optionId);
+    sanitized.push({
+      safeOptionId: randomUUID(),
+      originalOptionId: option.optionId,
+      name: sanitizeDiagnosticLine(option.name, homedir(), '权限选项', 512),
+      kind: option.kind,
+    });
+  }
+  return sanitized;
+}
+
 export async function resolveGrokBinary(): Promise<string | null> {
-  const candidates = grokBinaryCandidates(process.platform, homedir(), process.env.GROK_BINARY);
+  const candidates = grokBinaryCandidates(
+    process.platform,
+    homedir(),
+    process.env.GROK_BINARY,
+    process.env,
+  );
 
   for (const candidate of candidates) {
     if (await isExecutable(candidate)) return candidate;
@@ -267,6 +309,7 @@ export async function resolveGrokBinary(): Promise<string | null> {
 
   try {
     const lookup = pathLookupCommand(process.platform);
+    if (!lookup) return null;
     const { stdout } = await execFileAsync(lookup.file, lookup.args, {
       timeout: 3_000,
       encoding: 'utf8',
@@ -299,14 +342,15 @@ export async function inspectGrokBinary(): Promise<GrokStatus> {
     const { stdout, stderr } = await execFileAsync(command.file, command.args, {
       timeout: 5_000,
       encoding: 'utf8',
+      maxBuffer: MAX_VERSION_OUTPUT_BYTES,
       windowsHide: true,
       env: buildGrokChildEnvironment(process.env),
     });
-    const version = `${stdout}${stderr}`.trim();
+    const version = sanitizeDiagnosticLine(`${stdout}${stderr}`, homedir(), '已安装');
     return {
       status: 'detected',
       binaryPath,
-      version: version || '已安装',
+      version,
       authenticated: null,
     };
   } catch (error) {
@@ -377,7 +421,18 @@ export class GrokAcpManager {
   private connectPromiseGeneration = -1;
   private readyGeneration = -1;
 
-  constructor(private readonly clientVersion: string) {}
+  constructor(
+    private readonly clientVersion: string,
+    private readonly windowsJobRunnerPath: string | null = null,
+  ) {}
+
+  private runBackground(operation: Promise<void>, fallback: string): void {
+    void operation.catch((error) => {
+      if (this.shuttingDown) return;
+      const detail = safeErrorDetail(error, fallback);
+      this.connectionEvent({ status: 'error', detail, ...classifyConnectionIssue(detail) });
+    });
+  }
 
   registerWebContents(contents: WebContents): () => void {
     this.webContents.set(contents.id, contents);
@@ -401,7 +456,10 @@ export class GrokAcpManager {
       ownedSessionIds.some((sessionId) => this.activeTurns.has(sessionId)) ||
       [...this.pendingPermissions.values()].some((pending) => owned.has(pending.sessionId));
     if (hasActiveWork) {
-      void this.invalidateConnection('发起任务的窗口已关闭，已停止本地代理以取消后台操作。');
+      this.runBackground(
+        this.invalidateConnection('发起任务的窗口已关闭，已停止本地代理以取消后台操作。'),
+        '关闭窗口后清理本地代理失败。',
+      );
       return;
     }
     for (const sessionId of ownedSessionIds) this.sessions.delete(sessionId);
@@ -490,11 +548,18 @@ export class GrokAcpManager {
     }
     this.assertConnectionAttempt(generation);
 
-    const command = grokCommand(
+    const directCommand = grokCommand(
       binaryPath,
       ['--no-auto-update', 'agent', 'stdio'],
       process.platform,
     );
+    let command = directCommand;
+    if (process.platform === 'win32') {
+      if (!this.windowsJobRunnerPath || !(await isExecutable(this.windowsJobRunnerPath))) {
+        throw new Error('Windows 进程隔离组件缺失或无法读取，请重新安装星轨工作台。');
+      }
+      command = windowsJobRunnerCommand(this.windowsJobRunnerPath, process.pid, directCommand);
+    }
     const child = spawn(command.file, command.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: buildGrokChildEnvironment(process.env),
@@ -509,16 +574,25 @@ export class GrokAcpManager {
       this.lastStderr = `${this.lastStderr}${chunk}`.slice(-MAX_STDERR_CHARACTERS);
     });
     child.once('exit', (code, signal) => {
-      const detail =
-        sanitizeDiagnostic(this.lastStderr, homedir()).trim() ||
-        `Grok ACP 已退出（code=${code}, signal=${signal}）`;
-      void this.handleUnexpectedTermination(child, code === 0 ? 'offline' : 'error', detail);
+      const detail = sanitizeDiagnosticLine(
+        this.lastStderr,
+        homedir(),
+        `Grok ACP 已退出（code=${code}, signal=${signal}）`,
+        4_000,
+      );
+      this.runBackground(
+        this.handleUnexpectedTermination(child, code === 0 ? 'offline' : 'error', detail),
+        'Grok ACP 退出后清理失败。',
+      );
     });
     child.once('error', (error) => {
-      void this.handleUnexpectedTermination(
-        child,
-        'error',
-        safeErrorDetail(error, 'Grok ACP 子进程启动失败。'),
+      this.runBackground(
+        this.handleUnexpectedTermination(
+          child,
+          'error',
+          safeErrorDetail(error, 'Grok ACP 子进程启动失败。'),
+        ),
+        'Grok ACP 启动失败后清理异常。',
       );
     });
 
@@ -542,8 +616,11 @@ export class GrokAcpManager {
           if (registration.generation !== generation) return;
           this.touchTurn(params.sessionId);
           if (event?.type === 'mode.confirmed' && !registration.modeIds.has(event.currentModeId)) {
-            void this.invalidateConnection(
-              'Grok 报告了当前会话未声明的模式，已停止本地代理以避免状态失真。',
+            this.runBackground(
+              this.invalidateConnection(
+                'Grok 报告了当前会话未声明的模式，已停止本地代理以避免状态失真。',
+              ),
+              'Grok 模式异常后清理本地代理失败。',
             );
             return;
           }
@@ -553,19 +630,22 @@ export class GrokAcpManager {
 
       const connection = new acp.ClientSideConnection(() => client, stream);
       this.connection = connection;
-      void connection.closed.then(
-        async () => {
-          if (this.connection !== connection || this.process !== child) return;
-          await this.handleUnexpectedTermination(child, 'offline', 'Grok ACP 通道已关闭。');
-        },
-        async (error) => {
-          if (this.connection !== connection || this.process !== child) return;
-          await this.handleUnexpectedTermination(
-            child,
-            'error',
-            safeErrorDetail(error, 'Grok ACP 通道异常关闭。'),
-          );
-        },
+      this.runBackground(
+        connection.closed.then(
+          async () => {
+            if (this.connection !== connection || this.process !== child) return;
+            await this.handleUnexpectedTermination(child, 'offline', 'Grok ACP 通道已关闭。');
+          },
+          async (error) => {
+            if (this.connection !== connection || this.process !== child) return;
+            await this.handleUnexpectedTermination(
+              child,
+              'error',
+              safeErrorDetail(error, 'Grok ACP 通道异常关闭。'),
+            );
+          },
+        ),
+        'Grok ACP 通道关闭后清理失败。',
       );
 
       const initialized = await withTimeout(
@@ -725,7 +805,10 @@ export class GrokAcpManager {
     }
     const existing = this.earlySessionEvents.get(sessionId);
     if (!existing && this.earlySessionEvents.size >= MAX_EARLY_SESSION_IDS) {
-      void this.invalidateConnection('Grok 在会话创建期间发送了过多未归属事件，已重启本地代理。');
+      this.runBackground(
+        this.invalidateConnection('Grok 在会话创建期间发送了过多未归属事件，已重启本地代理。'),
+        '清理事件溢出的本地代理失败。',
+      );
       return;
     }
     const total = [...this.earlySessionEvents.values()].reduce(
@@ -733,12 +816,18 @@ export class GrokAcpManager {
       0,
     );
     if (total >= MAX_EARLY_EVENTS_TOTAL) {
-      void this.invalidateConnection('Grok 在会话创建期间发送了过多事件，已重启本地代理。');
+      this.runBackground(
+        this.invalidateConnection('Grok 在会话创建期间发送了过多事件，已重启本地代理。'),
+        '清理事件溢出的本地代理失败。',
+      );
       return;
     }
     const events = existing ?? [];
     if (events.length >= MAX_EARLY_EVENTS_PER_SESSION) {
-      void this.invalidateConnection('Grok 会话创建事件超过安全上限，已重启本地代理。');
+      this.runBackground(
+        this.invalidateConnection('Grok 会话创建事件超过安全上限，已重启本地代理。'),
+        '清理事件溢出的本地代理失败。',
+      );
       return;
     }
     events.push(event);
@@ -772,7 +861,10 @@ export class GrokAcpManager {
     }
     turn.idleTimer = setTimeout(() => {
       turn.idleTimer = null;
-      void this.handleIdleTurn(sessionId, turn);
+      this.runBackground(
+        this.handleIdleTurn(sessionId, turn),
+        'Grok 空闲 watchdog 清理本地代理失败。',
+      );
     }, PROMPT_IDLE_TIMEOUT_MS);
     turn.idleTimer.unref();
   }
@@ -1062,15 +1154,13 @@ export class GrokAcpManager {
     ) {
       return Promise.resolve({ outcome: { outcome: 'cancelled' } });
     }
+    const visibleOptions = sanitizePermissionOptions(params.options);
+    if (!visibleOptions) {
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } });
+    }
     this.pauseTurnForPermission(params.sessionId);
     const requestId = randomUUID();
     const expiresAt = Date.now() + PERMISSION_TIMEOUT_MS;
-    const visibleOptions = params.options.slice(0, 16).map((option) => ({
-      safeOptionId: randomUUID(),
-      originalOptionId: option.optionId,
-      name: option.name.slice(0, 512),
-      kind: option.kind,
-    }));
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingPermissions.delete(requestId);
@@ -1100,7 +1190,7 @@ export class GrokAcpManager {
         toolCall: sanitizeToolCall(params.toolCall),
         options: visibleOptions.map((option) => ({
           optionId: option.safeOptionId,
-          name: option.name.slice(0, 512),
+          name: option.name,
           kind: option.kind,
         })),
       };
@@ -1143,22 +1233,29 @@ export class GrokAcpManager {
     }
     if (!this.clearCurrent(child, abortDetail)) return;
 
-    const teardown = (async () => {
-      if (process.platform === 'win32') {
-        await terminateProcessTree(child);
-        return;
-      }
-      if (child.exitCode === null && child.signalCode === null) {
-        if (!child.stdin.destroyed) child.stdin.end();
-        await waitForExit(child, SHUTDOWN_GRACE_MS);
-      }
-      await terminateProcessTree(child);
-    })();
+    const teardown = gracefullyShutdownProcess(child, {
+      cleanupAfterExit: process.platform === 'win32' ? undefined : terminateProcessTree,
+      forceTerminate: terminateProcessTree,
+      graceTimeoutMs: SHUTDOWN_GRACE_MS,
+    });
     this.teardownPromise = teardown;
+    let teardownFailed = false;
+    let teardownError: unknown;
     try {
       await teardown;
+    } catch (error) {
+      teardownFailed = true;
+      teardownError = error;
     } finally {
       if (this.teardownPromise === teardown) this.teardownPromise = null;
+    }
+    if (teardownFailed) {
+      if (child.exitCode === null && child.signalCode === null && this.process === null) {
+        // Keep the handle so a retry attempts teardown again instead of
+        // starting a second local agent beside an unconfirmed orphan.
+        this.process = child;
+      }
+      throw teardownError;
     }
   }
 
@@ -1194,6 +1291,11 @@ export class GrokAcpManager {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
-    await this.disconnect();
+    try {
+      await this.disconnect();
+    } catch {
+      await delay(250);
+      await this.disconnect();
+    }
   }
 }

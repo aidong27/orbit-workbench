@@ -12,7 +12,52 @@
 - 自动更新与可验证的发布来源。
 - Linux 支持评估。
 
-## [0.2.0-alpha.3] - 2026-07-25
+## 0.2.0-alpha.4 - 2026-07-25
+
+### Added
+
+- Windows 缺失 CLI 时提供分步骤连接引导、xAI 官方 PowerShell 安装命令、默认安装位置和仅复制操作；应用不会自动执行安装脚本。
+- Windows 安装包生命周期验证覆盖中文/空格路径、NSIS 安装与卸载、重命名 Portable 启动、版本/许可证/快捷方式/注册表、残留进程和 SHA-256 清单。
+- Git porcelain NUL 分隔解析器，可靠展示含空格、引号、Unicode、控制字符以及重命名/复制记录的文件路径。
+- Windows 进程优雅退出、System32 `taskkill.exe`、工作区尺寸和 CLI 路径边界的独立回归测试。
+- 可审计的 x64 Windows Job Object 原生监督器：Grok 在挂起状态下加入 `KILL_ON_JOB_CLOSE` 作业后才开始运行，并同时监控 Electron 父进程。
+- Windows 原生门禁验证监督器逐字节转发 ACP stdio，并在直接子进程先退出后清理仍存活的后代。
+
+### Changed
+
+- Windows CLI 查找顺序扩展为 `GROK_BINARY`、官方 `GROK_BIN_DIR`、用户默认目录和 `PATH` 绝对目录，并移除对 `where.exe` 的依赖。
+- Windows 环境变量按不区分大小写的系统语义规范化和去重，继续阻止 Node/Electron 注入变量。
+- 正常关闭 ACP 时先结束 stdin 并等待 CLI 自行收尾；Windows Grok 进程树始终由 Job Object 约束，超时才额外使用有界的 `taskkill` 兜底。
+- Windows 字体栈、高 DPI 窗口、滚动条、长路径、窄视口弹窗和强制高对比度模式得到专项适配；辅助文字最低字号提升至 12px。
+- React、Electron 与 Biome 升级到当前补丁版本，Node 类型定义与项目声明的 Node 24 运行时重新对齐。
+
+### Fixed
+
+- Windows `Path`/`PATH`、驱动器大小写、斜杠和扩展路径变体不再制造重复工作区。
+- AltGr 不再触发 Ctrl 快捷键；IME 组词中的 Enter 不会执行命令面板操作。
+- 命令面板和设置弹窗恢复焦点闭环；权限路径、诊断复制和长文本提供明确成功/失败反馈。
+- Windows 高缩放下初始窗口不再大于可用工作区，窄视口中的引导内容不再挤压到不可操作。
+- 复制出的连接诊断会脱敏 Windows、macOS 与 Linux 用户目录，不改变本地界面显示。
+- CLI 缺失时顶部栏、侧栏和连接中心统一显示“未安装”，不再由顶部栏误报为普通“已断开”。
+- 设置弹窗打开后保持在连接状态摘要顶部，不再因自动聚焦下方重试按钮而发生意外滚动。
+- 设置、命令面板或权限确认打开时，后台快捷键不再创建任务或叠加第二个模态窗口。
+- 权限弹窗切换到来源会话时，输入框不再抢走安全确认弹窗的焦点。
+- ACP 断连会统一结束流式消息、过程摘要和未完成工具，不再同时显示“任务失败”与执行中 spinner。
+
+### Security
+
+- Windows 不再从 `PATH` 解析 `where.exe` 或 `taskkill.exe`；系统终止工具使用 `%SystemRoot%\System32` 下的绝对路径。
+- Windows 产物上传前必须与当前版本的 Setup/Portable 精确集合一致，并重新验证校验清单。
+- Windows Job Object 监督器的 PE32+ x64 头、固定 SHA-256、源代码安全标志和安装包落点在每次检查中验证。
+- 当前生产依赖审计无已知漏洞；未签名 Alpha 仍不构成 Authenticode 发布者身份认证。
+
+### Known limitations
+
+- Windows 产物仍未进行 Authenticode 签名；macOS 产物仍未进行 Apple Developer ID 签名或公证，hardened runtime 仍未启用。
+- Windows 的物理设备、辅助技术和多显示器缩放组合仍需要社区继续验证。
+- 不从 Grok Build 上游会话库恢复完整代理上下文。
+
+## 0.2.0-alpha.3 - 2026-07-25
 
 ### Added
 
@@ -42,7 +87,7 @@
 - `_x.ai/*` 通知仅在 JSON-RPC envelope、method 和 params 均满足严格边界时被忽略；带 ID request 不会被吞掉。
 - 现有 4 MiB 单帧限制、未知非 vendor 通知拒绝和固定脱敏错误保持不变。
 
-## [0.2.0-alpha.2] - 2026-07-21
+## 0.2.0-alpha.2 - 2026-07-21
 
 ### Added
 
@@ -132,8 +177,6 @@
 - 界面层不读取或保存 xAI API 密钥；CLI 子进程按应用启动环境继承变量。
 - 内容安全策略限制脚本、图片和网络连接来源；持久化历史会裁剪并移除工具载荷。
 
-[Unreleased]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.3...HEAD
-[0.2.0-alpha.3]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.2...v0.2.0-alpha.3
-[0.2.0-alpha.2]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.1...v0.2.0-alpha.2
+[Unreleased]: https://github.com/aidong27/orbit-workbench/compare/v0.2.0-alpha.1...HEAD
 [0.2.0-alpha.1]: https://github.com/aidong27/orbit-workbench/compare/v0.1.0-alpha.1...v0.2.0-alpha.1
 [0.1.0-alpha.1]: https://github.com/aidong27/orbit-workbench/releases/tag/v0.1.0-alpha.1

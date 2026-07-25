@@ -15,7 +15,7 @@
 
 - 应用崩溃、界面异常、平台兼容：提交 Bug Issue。
 - 新功能与工作流建议：提交 Feature Request。
-- Grok Build CLI 安装、登录、模型或上游工具问题：参考 [xAI Grok Build 仓库](https://github.com/xai-org/grok-build)。
+- Grok Build CLI 安装、登录、模型或上游工具问题：参考 [xAI Grok Build 官方文档](https://docs.x.ai/build/overview)。
 - 未修复的安全漏洞：使用[私密安全报告](https://github.com/aidong27/orbit-workbench/security/advisories/new)，不要开公开 Issue。
 
 ## 提供可用的诊断信息

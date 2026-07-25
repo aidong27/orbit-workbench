@@ -193,6 +193,9 @@ describeOnSupportedPlatform('GrokAcpManager fake ACP process integration', () =>
     });
     expect(request.options[0]?.optionId).not.toBe(`allow-original::${'x'.repeat(1_200)}`);
     expect(request.options[0]?.optionId.length).toBeLessThanOrEqual(1_024);
+    expect(request.options[0]?.name).toBe('Allow once password=[已隐藏]');
+    expect(request.options[0]?.name).not.toContain('\u202E');
+    expect(request.options[0]?.name).not.toContain('agent option secret');
     expect(channelPayloads(otherWindow, 'grok:permission-request')).toEqual([]);
 
     manager.resolvePermission(

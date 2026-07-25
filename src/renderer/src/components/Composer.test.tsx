@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkSession, WorkspaceProject } from '../state/model';
@@ -56,6 +56,7 @@ function renderComposer(
     connectionStatus: 'ready',
     connectionIssueCode: null,
     connectionDetail: '已连接',
+    focusBlocked: false,
     onValueChange: vi.fn(),
     onSend: vi.fn(),
     onStop: vi.fn(),
@@ -83,6 +84,17 @@ describe('Composer', () => {
     });
 
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('does not move focus behind a permission dialog when the active session changes', () => {
+    const first = makeSession({ id: 'session-1' });
+    const second = makeSession({ id: 'session-2' });
+    const rendered = renderComposer(first, { focusBlocked: true });
+    const textbox = screen.getByRole('textbox', { name: '任务输入' });
+
+    expect(textbox).not.toHaveFocus();
+    rendered.rerender(<Composer {...rendered.props} session={second} focusBlocked />);
+    expect(textbox).not.toHaveFocus();
   });
 
   it('sends once for a plain Enter after composition has ended', () => {
@@ -134,6 +146,21 @@ describe('Composer', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(modeButton).toHaveFocus();
+  });
+
+  it('uses a roving keyboard focus model for available modes', async () => {
+    renderComposer(makeSession());
+
+    const modeButton = screen.getByRole('button', { name: /计划/ });
+    fireEvent.keyDown(modeButton, { key: 'ArrowDown' });
+    const normalMode = screen.getByRole('menuitemradio', { name: /普通/ });
+    const planMode = screen.getByRole('menuitemradio', { name: /计划/ });
+    await waitFor(() => expect(normalMode).toHaveFocus());
+
+    fireEvent.keyDown(normalMode, { key: 'ArrowUp' });
+    await waitFor(() => expect(planMode).toHaveFocus());
+    fireEvent.keyDown(planMode, { key: 'Home' });
+    await waitFor(() => expect(normalMode).toHaveFocus());
   });
 
   it('does not send while a mode switch is awaiting agent confirmation', () => {

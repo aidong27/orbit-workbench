@@ -8,9 +8,12 @@ import {
   TerminalSquare,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ConnectionIssueCode, ConnectionStatus } from '../../../shared/types';
+import { copyText } from '../lib/clipboard';
 import { buildConnectionDiagnostic, connectionView } from '../lib/connection';
+import { WINDOWS_GROK_INSTALL_COMMAND } from '../lib/grok-install';
+import { useCopyFeedback } from '../lib/use-copy-feedback';
 import { OrbitMark } from './OrbitMark';
 
 interface SettingsDialogProps {
@@ -45,9 +48,10 @@ export function SettingsDialog({
   onClose,
 }: SettingsDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
-  const retryRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, reportCopy] = useCopyFeedback();
+  const [installCopyStatus, reportInstallCopy] = useCopyFeedback();
   const connected = connectionStatus === 'ready';
   const busy =
     connectionStatus === 'checking' ||
@@ -86,17 +90,19 @@ export function SettingsDialog({
     if (!open) return;
     returnFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => {
-      (connected
-        ? dialogRef.current?.querySelector<HTMLButtonElement>('[data-close]')
-        : retryRef.current
-      )?.focus();
-    });
     return () => {
-      window.cancelAnimationFrame(frame);
       returnFocusRef.current?.focus();
     };
-  }, [connected, open]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (closeRef.current) closeRef.current.focus();
+      else dialogRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   if (!open) return null;
 
@@ -123,13 +129,8 @@ export function SettingsDialog({
   };
 
   const copyDiagnostic = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(diagnostic);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1_800);
-    } catch {
-      setCopied(false);
-    }
+    const copied = await copyText(diagnostic);
+    reportCopy(copied);
   };
 
   return (
@@ -143,6 +144,7 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
+        tabIndex={-1}
       >
         <header>
           <div>
@@ -155,6 +157,7 @@ export function SettingsDialog({
             </span>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="icon-button"
             onClick={onClose}
@@ -201,7 +204,9 @@ export function SettingsDialog({
                 <dt>CLI 版本</dt>
                 <dd>{cliVersion ?? '未读取'}</dd>
                 <dt>CLI 路径</dt>
-                <dd>{binaryPath ?? '未检测到'}</dd>
+                <dd dir="ltr" title={binaryPath ?? undefined}>
+                  {binaryPath ?? '未检测到'}
+                </dd>
                 <dt>ACP Agent</dt>
                 <dd>
                   {[agentName, agentVersion].filter(Boolean).join(' ') ||
@@ -210,9 +215,44 @@ export function SettingsDialog({
                 <dt>问题代码</dt>
                 <dd>{connectionIssueCode ?? '无'}</dd>
               </dl>
+              {platform === 'win32' && connectionIssueCode === 'binary_missing' && (
+                <div className="windows-install-guide">
+                  <strong>在 PowerShell 中安装 Grok CLI</strong>
+                  <p>
+                    此命令会从 x.ai
+                    下载并执行安装脚本。运行前可先打开脚本地址审阅内容；工作台只负责复制，不会自动执行。
+                  </p>
+                  <code dir="ltr">{WINDOWS_GROK_INSTALL_COMMAND}</code>
+                  <a href="https://x.ai/cli/install.ps1" target="_blank" rel="noreferrer">
+                    运行前审阅 install.ps1 <ExternalLink size={13} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyText(WINDOWS_GROK_INSTALL_COMMAND).then((copied) => {
+                        reportInstallCopy(copied);
+                      })
+                    }
+                  >
+                    <Copy size={14} />{' '}
+                    {installCopyStatus === 'success'
+                      ? '安装命令已复制'
+                      : installCopyStatus === 'failure'
+                        ? '复制失败，请手动选择命令'
+                        : '复制 PowerShell 安装命令'}
+                  </button>
+                  {installCopyStatus !== 'idle' && (
+                    <span className="visually-hidden" role="status" aria-live="polite">
+                      {installCopyStatus === 'success'
+                        ? 'PowerShell 安装命令已复制'
+                        : 'PowerShell 安装命令复制失败'}
+                    </span>
+                  )}
+                  <small>默认安装位置：%USERPROFILE%\.grok\bin\grok.exe</small>
+                </div>
+              )}
               <div className="connection-actions">
                 <button
-                  ref={retryRef}
                   type="button"
                   className="is-primary"
                   onClick={onRetryConnection}
@@ -221,8 +261,18 @@ export function SettingsDialog({
                   <RefreshCw size={15} /> {busy ? '正在连接…' : connected ? '重新检测' : '重新连接'}
                 </button>
                 <button type="button" onClick={() => void copyDiagnostic()}>
-                  <Copy size={15} /> {copied ? '已复制' : '复制脱敏诊断'}
+                  <Copy size={15} />{' '}
+                  {copyStatus === 'success'
+                    ? '已复制'
+                    : copyStatus === 'failure'
+                      ? '复制失败，请重试'
+                      : '复制脱敏诊断'}
                 </button>
+                {copyStatus !== 'idle' && (
+                  <span className="visually-hidden" role="status" aria-live="polite">
+                    {copyStatus === 'success' ? '脱敏诊断已复制' : '脱敏诊断复制失败'}
+                  </span>
+                )}
                 <a href="https://docs.x.ai/build/overview" target="_blank" rel="noreferrer">
                   安装与登录说明 <ExternalLink size={14} />
                 </a>

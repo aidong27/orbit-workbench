@@ -59,7 +59,13 @@ function renderDialog(
 }
 
 describe('PermissionDialog', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+  });
 
   it('shows the project, path, and session that originated the request', () => {
     renderDialog();
@@ -77,6 +83,21 @@ describe('PermissionDialog', () => {
 
     await user.click(screen.getByRole('button', { name: '切换到来源会话' }));
     expect(onShowSource).toHaveBeenCalledOnce();
+  });
+
+  it('copies a long Windows source path without changing separators', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const projectPath = String.raw`\\?\C:\Users\测试用户\Documents\很长的工作区\payment-service`;
+    renderDialog({ projectPath });
+
+    await user.click(screen.getByRole('button', { name: '复制完整路径' }));
+    expect(writeText).toHaveBeenCalledWith(projectPath);
+    expect(screen.getByRole('button', { name: '路径已复制' })).toBeInTheDocument();
   });
 
   it('disables allow choices when the request origin cannot be verified', () => {
