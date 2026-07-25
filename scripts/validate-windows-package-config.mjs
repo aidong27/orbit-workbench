@@ -195,7 +195,9 @@ for (const contract of [
   'ORBIT_SMOKE_USER_DATA_BASE64:',
   'Get-SmokeReportedUserDataPath',
   'Installed uninstaller display icon',
-  '$shortcut.Arguments',
+  'Get-ShortcutDetails',
+  'Shell.Application',
+  '$shortcutDetails.Arguments',
   'User data preservation sentinel: retained after uninstall',
   'SHA256SUMS-Windows-x64.txt',
   'windows-job-runner.exe',
@@ -206,6 +208,14 @@ for (const contract of [
 assert(
   !verifier.includes('& taskkill.exe') && verifier.includes('& $taskkillPath'),
   'Windows verifier must invoke taskkill from the resolved System32 path',
+);
+assert(
+  !verifier.includes('WScript.Shell') &&
+    !verifier.includes('CreateShortcut') &&
+    verifier.includes('$shell.NameSpace($shortcutDirectory)') &&
+    verifier.includes('$folder.ParseName($shortcutName)') &&
+    verifier.includes('$folderItem.GetLink'),
+  'Windows verifier must inspect Unicode shortcuts through Shell link objects',
 );
 assert(
   verifier.includes('Get-ChildItem -LiteralPath $releasePath -Filter "*.exe" -File'),

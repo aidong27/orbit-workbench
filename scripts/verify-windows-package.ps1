@@ -468,18 +468,49 @@ function Assert-RegisteredUninstallerCommand(
   }
 }
 
+function Get-ShortcutDetails([string]$ShortcutPath, [string]$Description) {
+  Assert-NonEmptyFile $ShortcutPath $Description
+  $normalizedShortcut = [System.IO.Path]::GetFullPath($ShortcutPath)
+  $shortcutDirectory = [System.IO.Path]::GetDirectoryName($normalizedShortcut)
+  $shortcutName = [System.IO.Path]::GetFileName($normalizedShortcut)
+  Assert-True (
+    -not [string]::IsNullOrWhiteSpace($shortcutDirectory) -and
+    -not [string]::IsNullOrWhiteSpace($shortcutName)
+  ) "$Description path cannot be resolved: $ShortcutPath"
+
+  $shell = New-Object -ComObject Shell.Application
+  $folder = $shell.NameSpace($shortcutDirectory)
+  Assert-True ($null -ne $folder) "$Description parent folder cannot be opened."
+  $folderItem = $folder.ParseName($shortcutName)
+  Assert-True ($null -ne $folderItem) "$Description cannot be resolved as a Shell item."
+  Assert-True ([bool]$folderItem.IsLink) "$Description is not a Shell link."
+  $link = $folderItem.GetLink
+  Assert-True ($null -ne $link) "$Description cannot be resolved as a Shell link."
+
+  return [PSCustomObject]@{
+    Arguments = [string]$link.Arguments
+    TargetPath = [string]$link.Path
+  }
+}
+
 function Assert-Shortcut([string]$ShortcutPath, [string]$ExpectedTarget, [string]$Description) {
   Assert-NonEmptyFile $ShortcutPath $Description
-  $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($ShortcutPath)
-  $target = $shortcut.TargetPath
+  $diagnosticName = ($Description -replace "[^A-Za-z0-9_-]", "-").Trim("-").ToLowerInvariant()
+  Copy-Item -LiteralPath $ShortcutPath -Destination (
+    Join-Path $diagnosticsPath "shortcut-$diagnosticName.lnk"
+  ) -Force
+  $shortcutDetails = Get-ShortcutDetails $ShortcutPath $Description
+  $target = $shortcutDetails.TargetPath
+  Assert-True (
+    -not [string]::IsNullOrWhiteSpace($target)
+  ) "$Description has an empty Shell link target."
   $normalizedTarget = [System.IO.Path]::GetFullPath($target)
   $normalizedExpected = [System.IO.Path]::GetFullPath($ExpectedTarget)
   Assert-True (
     $normalizedTarget.Equals($normalizedExpected, [System.StringComparison]::OrdinalIgnoreCase)
   ) "$Description target '$target' does not match '$ExpectedTarget'."
-  Assert-True ([string]::IsNullOrWhiteSpace([string]$shortcut.Arguments)) (
-    "$Description unexpectedly adds launch arguments: $($shortcut.Arguments)"
+  Assert-True ([string]::IsNullOrWhiteSpace($shortcutDetails.Arguments)) (
+    "$Description unexpectedly adds launch arguments: $($shortcutDetails.Arguments)"
   )
   return $ShortcutPath
 }
@@ -530,10 +561,11 @@ function Remove-TestShortcut([string]$ShortcutPath) {
     return
   }
   $expectedTestApp = Join-Path $installDirectory $expectedExecutableName
-  $shell = New-Object -ComObject WScript.Shell
-  $shortcutTarget = $shell.CreateShortcut($ShortcutPath).TargetPath
+  $shortcutDetails = Get-ShortcutDetails $ShortcutPath "Test shortcut cleanup target"
+  $shortcutTarget = $shortcutDetails.TargetPath
   $isTestShortcut = (
     -not [string]::IsNullOrWhiteSpace([string]$shortcutTarget) -and
+    [string]::IsNullOrWhiteSpace($shortcutDetails.Arguments) -and
     [System.IO.Path]::GetFullPath($shortcutTarget).Equals(
       [System.IO.Path]::GetFullPath($expectedTestApp),
       [System.StringComparison]::OrdinalIgnoreCase
