@@ -17,6 +17,7 @@ describe('runEngineConnectionAttempt', () => {
         agentName: 'Grok Build',
         agentVersion: '0.2.112',
       }),
+      reconnectGrok: vi.fn(),
     };
 
     await runEngineConnectionAttempt(api, 7, (action) => actions.push(action));
@@ -42,6 +43,7 @@ describe('runEngineConnectionAttempt', () => {
         retryable: true,
       }),
       connectGrok: vi.fn(),
+      reconnectGrok: vi.fn(),
     };
 
     await runEngineConnectionAttempt(api, 1, (action) => actions.push(action));
@@ -63,6 +65,7 @@ describe('runEngineConnectionAttempt', () => {
           new Error("Error invoking remote method 'grok:check': Error: 无法读取 Grok Build 版本。"),
         ),
       connectGrok: vi.fn(),
+      reconnectGrok: vi.fn(),
     };
 
     await runEngineConnectionAttempt(api, 3, (action) => actions.push(action));
@@ -70,6 +73,32 @@ describe('runEngineConnectionAttempt', () => {
     expect(actions.at(-1)).toMatchObject({
       type: 'CONNECTION_RESULT',
       result: { status: 'error', detail: '无法读取 Grok Build 版本。' },
+    });
+  });
+
+  it('uses the force-reconnect path for an explicit retry', async () => {
+    const actions: unknown[] = [];
+    const api = {
+      checkGrok: vi.fn().mockResolvedValue({
+        status: 'detected',
+        binaryPath: '/Users/test/.grok/bin/grok',
+        version: 'grok 0.2.112',
+        authenticated: null,
+      }),
+      connectGrok: vi.fn(),
+      reconnectGrok: vi.fn().mockResolvedValue({
+        status: 'ready',
+        detail: '本机代理已重新启动并重新验证登录',
+      }),
+    };
+
+    await runEngineConnectionAttempt(api, 8, (action) => actions.push(action), true);
+
+    expect(api.reconnectGrok).toHaveBeenCalledOnce();
+    expect(api.connectGrok).not.toHaveBeenCalled();
+    expect(actions.at(-1)).toMatchObject({
+      type: 'CONNECTION_RESULT',
+      result: { status: 'ready' },
     });
   });
 });

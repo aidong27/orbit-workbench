@@ -77,9 +77,9 @@ export function Sidebar({
     );
   }
 
-  const activeProjectSessions = state.sessions.filter(
-    (session) => session.projectId === state.activeProjectId,
-  );
+  const activeProjectSessions = state.sessions
+    .filter((session) => session.projectId === state.activeProjectId)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
 
   return (
     <aside className="sidebar">

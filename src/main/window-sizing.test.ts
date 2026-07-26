@@ -6,8 +6,8 @@ describe('desktop window sizing', () => {
     expect(windowSizeForWorkArea('win32', { width: 1_093, height: 576 })).toEqual({
       width: 1_093,
       height: 576,
-      minWidth: 760,
-      minHeight: 560,
+      minWidth: 560,
+      minHeight: 420,
     });
   });
 
@@ -15,8 +15,8 @@ describe('desktop window sizing', () => {
     expect(windowSizeForWorkArea('win32', { width: 2_560, height: 1_440 })).toEqual({
       width: 1_500,
       height: 960,
-      minWidth: 760,
-      minHeight: 560,
+      minWidth: 560,
+      minHeight: 420,
     });
   });
 
@@ -24,8 +24,8 @@ describe('desktop window sizing', () => {
     expect(windowSizeForWorkArea('win32', { width: 720, height: 500 })).toEqual({
       width: 720,
       height: 500,
-      minWidth: 720,
-      minHeight: 500,
+      minWidth: 560,
+      minHeight: 420,
     });
   });
 

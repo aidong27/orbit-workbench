@@ -2,13 +2,14 @@ import type { GrokDesktopApi } from '../../../shared/types';
 import type { AppAction } from '../state/model';
 import { cleanDesktopError } from './connection';
 
-type EngineApi = Pick<GrokDesktopApi, 'checkGrok' | 'connectGrok'>;
+type EngineApi = Pick<GrokDesktopApi, 'checkGrok' | 'connectGrok' | 'reconnectGrok'>;
 type EngineDispatch = (action: AppAction) => void;
 
 export async function runEngineConnectionAttempt(
   api: EngineApi,
   attemptId: number,
   dispatch: EngineDispatch,
+  forceReconnect = false,
 ): Promise<void> {
   dispatch({ type: 'CONNECTION_ATTEMPT', attemptId });
   try {
@@ -20,7 +21,7 @@ export async function runEngineConnectionAttempt(
       attemptId,
       result: { status: 'connecting', detail: '正在启动 Grok ACP 并验证登录…' },
     });
-    const connected = await api.connectGrok();
+    const connected = await (forceReconnect ? api.reconnectGrok() : api.connectGrok());
     dispatch({ type: 'CONNECTION_RESULT', attemptId, result: connected });
   } catch (error) {
     dispatch({

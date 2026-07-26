@@ -288,6 +288,8 @@ export function Inspector({
               }}
               role="tab"
               id={`inspector-tab-${tab.id}`}
+              aria-label={tab.label}
+              title={tab.label}
               aria-controls="inspector-panel"
               aria-selected={tab.id === activeTab}
               tabIndex={tab.id === activeTab ? 0 : -1}

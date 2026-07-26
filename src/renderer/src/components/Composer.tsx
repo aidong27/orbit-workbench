@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type { ConnectionIssueCode, ConnectionStatus } from '../../../shared/types';
 import { shouldSubmitComposerKey } from '../lib/composer-input';
+import { useAutosizeComposerTextarea } from '../lib/composer-textarea';
 import { connectionView } from '../lib/connection';
 import { modeLabel } from '../lib/format';
 import { sessionBlocksInput, type WorkSession, type WorkspaceProject } from '../state/model';
@@ -22,12 +23,14 @@ interface ComposerProps {
   connectionStatus: ConnectionStatus;
   connectionIssueCode: ConnectionIssueCode | null;
   connectionDetail: string;
+  showConnectionNotice: boolean;
   focusBlocked: boolean;
   onValueChange: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onModeChange: (modeId: string) => void;
   onNewSession: () => void;
+  onNewSessionWithDraft: (draft: string) => void;
   onRetryConnection: () => void;
   onOpenConnectionCenter: () => void;
 }
@@ -39,12 +42,14 @@ export function Composer({
   connectionStatus,
   connectionIssueCode,
   connectionDetail,
+  showConnectionNotice,
   focusBlocked,
   onValueChange,
   onSend,
   onStop,
   onModeChange,
   onNewSession,
+  onNewSessionWithDraft,
   onRetryConnection,
   onOpenConnectionCenter,
 }: ComposerProps) {
@@ -98,6 +103,8 @@ export function Composer({
           : '跟随 Grok（首条任务时确认）';
 
   focusBlockedRef.current = focusBlocked;
+  useAutosizeComposerTextarea(textareaRef, value, activeSessionId);
+
   useEffect(() => {
     if (activeSessionId && !focusBlockedRef.current) textareaRef.current?.focus();
   }, [activeSessionId]);
@@ -186,6 +193,7 @@ export function Composer({
   }
 
   if (isHistoryOnly) {
+    const retainedDraft = value.trim();
     return (
       <div className="composer-shell composer-shell--history-only">
         <div className="history-only-cta" role="status">
@@ -194,9 +202,26 @@ export function Composer({
             <strong>这是本地历史记录，Grok 上下文未恢复</strong>
             <small>为避免伪连续，不能在这段记录中直接续写。新任务不会携带旧对话。</small>
           </span>
-          <button type="button" onClick={onNewSession}>
-            新建空白任务
-          </button>
+          <div className="history-only-cta__actions">
+            {retainedDraft && (
+              <button
+                type="button"
+                className="is-primary"
+                onClick={() => onNewSessionWithDraft(value)}
+              >
+                新建任务并带上草稿
+              </button>
+            )}
+            <button type="button" onClick={onNewSession}>
+              新建空白任务
+            </button>
+          </div>
+          {retainedDraft && (
+            <label className="history-only-draft">
+              <span>这个会话还有未发送草稿，可选择复制或带到新任务</span>
+              <textarea readOnly value={value} aria-label="保留的未发送草稿" />
+            </label>
+          )}
         </div>
       </div>
     );
@@ -204,7 +229,7 @@ export function Composer({
 
   return (
     <div className="composer-shell">
-      {!connected && (
+      {showConnectionNotice && !connected && (
         <div className="notice notice--warning composer-connection-notice" role="status">
           <CircleAlert size={16} />
           <span>
@@ -223,6 +248,7 @@ export function Composer({
       )}
       <div className={`composer ${isWorking ? 'composer--working' : ''}`}>
         <textarea
+          key={activeSessionId}
           ref={textareaRef}
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
@@ -234,6 +260,9 @@ export function Composer({
               : '可以先写下任务；连接成功后再发送…'
           }
           aria-label="任务输入"
+          aria-describedby="composer-keyboard-hint"
+          aria-keyshortcuts="Enter"
+          aria-busy={isWorking}
         />
         <div className="composer__toolbar">
           <div className="composer__tools">
@@ -315,6 +344,7 @@ export function Composer({
               onClick={onStop}
               disabled={!canStop}
               title={canStop ? '停止当前任务' : '正在建立 Grok 会话'}
+              aria-label={canStop ? '停止当前任务' : '正在建立 Grok 会话'}
             >
               <CircleStop size={16} />
             </button>
@@ -325,13 +355,14 @@ export function Composer({
               onClick={submit}
               disabled={!canSend}
               title="发送任务"
+              aria-label="发送任务"
             >
               <Send size={15} />
             </button>
           )}
         </div>
       </div>
-      <div className="composer-hint">
+      <div className="composer-hint" id="composer-keyboard-hint">
         {!connected ? (
           <span className="composer-hint__error">Grok 尚未连接 · 当前内容仅保存在草稿中</span>
         ) : session?.modeSwitchStatus === 'failed' ? (

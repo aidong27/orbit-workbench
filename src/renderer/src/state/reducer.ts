@@ -100,6 +100,25 @@ function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function mostRecentSessionId(sessions: WorkSession[], projectId: string | null): string | null {
+  if (!projectId) return null;
+  return (
+    sessions
+      .filter((session) => session.projectId === projectId)
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0]?.id ?? null
+  );
+}
+
+function retainKnownDrafts(
+  drafts: AppState['draftsBySessionId'],
+  sessions: WorkSession[],
+): AppState['draftsBySessionId'] {
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  return Object.fromEntries(
+    Object.entries(drafts).filter(([sessionId, value]) => sessionIds.has(sessionId) && value),
+  );
+}
+
 function updateSession(
   state: AppState,
   sessionId: string,
@@ -302,6 +321,9 @@ function applyConnectionEvent(
     detail?: string;
     agentName?: string;
     agentVersion?: string;
+    authenticated?: boolean | null;
+    authMethod?: string | null;
+    logoutSupported?: boolean;
     issueCode?: AppState['connectionIssueCode'];
     retryable?: boolean;
   },
@@ -319,8 +341,26 @@ function applyConnectionEvent(
       event.status === 'ready'
         ? false
         : (event.retryable ?? (disconnected ? true : state.connectionRetryable)),
-    grokAgentName: event.agentName ?? state.grokAgentName,
-    grokAgentVersion: event.agentVersion ?? state.grokAgentVersion,
+    grokAuthenticated:
+      event.authenticated === undefined
+        ? disconnected
+          ? null
+          : state.grokAuthenticated
+        : event.authenticated,
+    grokAuthMethod:
+      event.authMethod === undefined
+        ? disconnected
+          ? null
+          : state.grokAuthMethod
+        : event.authMethod,
+    grokLogoutSupported:
+      event.logoutSupported === undefined
+        ? disconnected
+          ? false
+          : state.grokLogoutSupported
+        : event.logoutSupported,
+    grokAgentName: disconnected ? null : (event.agentName ?? state.grokAgentName),
+    grokAgentVersion: disconnected ? null : (event.agentVersion ?? state.grokAgentVersion),
     sessions: disconnected
       ? state.sessions.map((session) => {
           if (session.demo) return session;
@@ -345,6 +385,7 @@ function applyConnectionEvent(
             configOptionsTruncated: false,
             modeSwitchStatus: 'idle',
             modeSwitchError: null,
+            modeRequestId: 0,
             status: wasActive ? ('failed' as const) : session.status,
             updatedAt: wasActive ? Date.now() : session.updatedAt,
           };
@@ -459,9 +500,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         projects: reconciled.projects,
         sessions: reconciled.sessions,
+        draftsBySessionId: retainKnownDrafts(state.draftsBySessionId, reconciled.sessions),
         activeProjectId,
-        activeSessionId:
-          reconciled.sessions.find((session) => session.projectId === activeProjectId)?.id ?? null,
+        activeSessionId: mostRecentSessionId(reconciled.sessions, activeProjectId),
       };
     }
     case 'PROJECT_UPDATED': {
@@ -473,6 +514,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         projects: reconciled.projects,
         sessions: reconciled.sessions,
+        draftsBySessionId: retainKnownDrafts(state.draftsBySessionId, reconciled.sessions),
         activeProjectId: reconciled.resolveProjectId(state.activeProjectId),
       };
     }
@@ -485,18 +527,26 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         projects: reconciled.projects,
         sessions: reconciled.sessions,
+        draftsBySessionId: retainKnownDrafts(state.draftsBySessionId, reconciled.sessions),
         activeProjectId,
-        activeSessionId:
-          reconciled.sessions.find((session) => session.projectId === activeProjectId)?.id ?? null,
+        activeSessionId: mostRecentSessionId(reconciled.sessions, activeProjectId),
       };
     }
-    case 'SESSION_CREATED':
+    case 'SESSION_CREATED': {
+      const draftsBySessionId = Object.fromEntries(
+        Object.entries(state.draftsBySessionId).filter(
+          ([sessionId]) => sessionId !== action.sourceDraftSessionId,
+        ),
+      );
+      if (action.draft) draftsBySessionId[action.session.id] = action.draft;
       return {
         ...state,
         sessions: [action.session, ...state.sessions.filter((session) => !session.demo)],
         activeSessionId: action.session.id,
         activeProjectId: action.session.projectId,
+        draftsBySessionId,
       };
+    }
     case 'SESSION_SELECTED': {
       const session = state.sessions.find((item) => item.id === action.sessionId);
       return {
@@ -532,26 +582,35 @@ export function reducer(state: AppState, action: AppAction): AppState {
         title: action.title,
         updatedAt: Date.now(),
       }));
-    case 'USER_MESSAGE':
-      return updateSession(state, action.sessionId, (session) => {
-        if (session.continuity === 'local-history-only') return session;
-        return {
-          ...session,
-          title: session.title === '新任务' ? action.text.slice(0, 28) : session.title,
-          status: 'working',
-          updatedAt: Date.now(),
-          timeline: [
-            ...session.timeline,
-            {
-              id: nowId('user'),
-              type: 'message',
-              role: 'user',
-              content: action.text,
-              createdAt: Date.now(),
-            },
-          ],
-        };
-      });
+    case 'USER_MESSAGE': {
+      const targetSession = state.sessions.find((session) => session.id === action.sessionId);
+      if (!targetSession || targetSession.continuity === 'local-history-only') return state;
+      return {
+        ...updateSession(state, action.sessionId, (session) => {
+          return {
+            ...session,
+            title: session.title === '新任务' ? action.text.slice(0, 28) : session.title,
+            status: 'working',
+            updatedAt: Date.now(),
+            timeline: [
+              ...session.timeline,
+              {
+                id: nowId('user'),
+                type: 'message',
+                role: 'user',
+                content: action.text,
+                createdAt: Date.now(),
+              },
+            ],
+          };
+        }),
+        draftsBySessionId: Object.fromEntries(
+          Object.entries(state.draftsBySessionId).filter(
+            ([sessionId]) => sessionId !== action.sessionId,
+          ),
+        ),
+      };
+    }
     case 'ACP_EVENT':
       return updateSession(state, action.sessionId, (session) =>
         applyAcpEvent(session, action.event),
@@ -589,13 +648,20 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return updateSession(state, action.sessionId, (session) =>
         session.modeRequestId !== action.requestId
           ? session
-          : {
-              ...session,
-              requestedModeId: session.confirmedModeId,
-              modeSwitchStatus: 'failed',
-              modeSwitchError: action.error,
-              updatedAt: Date.now(),
-            },
+          : session.confirmedModeId === action.modeId
+            ? {
+                ...session,
+                requestedModeId: action.modeId,
+                modeSwitchStatus: 'idle',
+                modeSwitchError: null,
+              }
+            : {
+                ...session,
+                requestedModeId: session.confirmedModeId,
+                modeSwitchStatus: 'failed',
+                modeSwitchError: action.error,
+                updatedAt: Date.now(),
+              },
       );
     case 'CONNECTION_ATTEMPT':
       return {
@@ -627,6 +693,56 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return applyConnectionEvent(state, action.result);
     case 'CONNECTION_EVENT':
       return applyConnectionEvent(state, action.event);
+    case 'GROK_LOGGED_OUT': {
+      const disconnected = applyConnectionEvent(state, {
+        status: action.confirmed ? 'offline' : 'error',
+        detail: action.detail,
+        issueCode: action.confirmed ? 'authentication_required' : 'authentication_failed',
+        retryable: true,
+        authenticated: action.confirmed ? false : null,
+        authMethod: null,
+        logoutSupported: false,
+      });
+      return {
+        ...disconnected,
+        autoConnectGrok: false,
+        grokAgentName: null,
+        grokAgentVersion: null,
+      };
+    }
+    case 'AUTO_CONNECT_GROK':
+      return { ...state, autoConnectGrok: action.enabled };
+    case 'DRAFT_CHANGED': {
+      if (!state.sessions.some((session) => session.id === action.sessionId)) return state;
+      if (!action.value) {
+        return {
+          ...state,
+          draftsBySessionId: Object.fromEntries(
+            Object.entries(state.draftsBySessionId).filter(
+              ([sessionId]) => sessionId !== action.sessionId,
+            ),
+          ),
+        };
+      }
+      return {
+        ...state,
+        draftsBySessionId: {
+          ...state.draftsBySessionId,
+          [action.sessionId]: action.value,
+        },
+      };
+    }
+    case 'DRAFT_CLEARED':
+      return {
+        ...state,
+        draftsBySessionId: Object.fromEntries(
+          Object.entries(state.draftsBySessionId).filter(
+            ([sessionId]) => sessionId !== action.sessionId,
+          ),
+        ),
+      };
+    case 'UI_TEXT_SCALE':
+      return { ...state, uiTextScale: action.scale };
     case 'PERMISSION_REQUEST': {
       if (
         state.pendingPermissions.some((request) => request.requestId === action.request.requestId)

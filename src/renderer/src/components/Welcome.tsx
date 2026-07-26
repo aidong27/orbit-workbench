@@ -56,16 +56,25 @@ export function Welcome({
   const connected = connectionStatus === 'ready';
   const failed = connectionStatus === 'offline' || connectionStatus === 'error';
   const showWindowsInstall = platform === 'win32' && connectionIssueCode === 'binary_missing';
+  const setupTitle = connected
+    ? '连接完成，选择第一个工作区'
+    : connectionIssueCode === 'binary_missing'
+      ? '先安装 Grok CLI，再开始第一个任务'
+      : connectionIssueCode === 'authentication_required' ||
+          connectionIssueCode === 'authentication_failed'
+        ? '先确认 Grok 登录，再开始第一个任务'
+        : '先连接 Grok，再开始第一个任务';
 
   return (
     <div className="welcome-scroll">
       <section className="setup-screen" aria-labelledby="setup-title">
         <OrbitMark size={54} active={connecting || connected} />
         <p className="setup-eyebrow">GROK BUILD · 中文桌面工作台</p>
-        <h1 id="setup-title">先连接 Grok，再开始第一个任务</h1>
+        <h1 id="setup-title">{setupTitle}</h1>
         <p className="setup-lead">
-          星轨工作台调用你本机安装的 Grok Build CLI。下面会依次检测程序、验证 ACP
-          连接，再让你选择项目目录；认证信息不会进入这个界面。
+          {connected
+            ? '本机 Grok ACP 已就绪。请选择要交给 Grok 的项目目录；进入工作区后，可以从只读中文模板开始第一项任务。'
+            : '星轨工作台调用你本机安装的 Grok Build CLI。下面会依次检测程序、验证 ACP 连接，再让你选择项目目录；认证信息不会进入这个界面。'}
         </p>
 
         <ol className="setup-steps" aria-label="首次设置进度">
@@ -92,7 +101,7 @@ export function Welcome({
             <span className="setup-step__index">{connected ? <Check size={16} /> : '2'}</span>
             <span>
               <strong>连接 ACP</strong>
-              <small>{connected ? '协议与认证完成' : '启动并验证本机代理'}</small>
+              <small>{connected ? 'ACP 协议已连接' : '启动并验证本机代理'}</small>
             </span>
           </li>
           <li className={stepClass(false, connected)}>

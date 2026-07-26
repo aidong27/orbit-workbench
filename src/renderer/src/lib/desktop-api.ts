@@ -32,7 +32,7 @@ function emitSession(event: AcpSessionEvent): void {
 const browserPreviewApi: GrokDesktopApi = {
   reportRendererReady: async () => undefined,
   getAppInfo: async () => ({
-    version: '0.2.0-alpha.4',
+    version: '0.2.0-alpha.5',
     platform: previewPlatform,
     arch: previewArch,
     isPackaged: false,
@@ -81,6 +81,24 @@ const browserPreviewApi: GrokDesktopApi = {
     detail: '浏览器界面预览模式',
     agentName: 'Grok Build',
     agentVersion: '0.2.99',
+    authenticated: true,
+    authMethod: '浏览器预览',
+    logoutSupported: true,
+  }),
+  reconnectGrok: async () => ({
+    status: 'ready',
+    detail: '浏览器界面预览模式（已重新连接）',
+    agentName: 'Grok Build',
+    agentVersion: '0.2.99',
+    authenticated: true,
+    authMethod: '浏览器预览',
+    logoutSupported: true,
+  }),
+  logoutGrok: async () => ({
+    confirmed: true,
+    status: 'logged_out',
+    accountLabel: 'preview@example.com',
+    detail: '浏览器预览账号已退出。',
   }),
   createSession: async () => ({
     sessionId: crypto.randomUUID(),

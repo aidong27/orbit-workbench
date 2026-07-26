@@ -56,12 +56,14 @@ function renderComposer(
     connectionStatus: 'ready',
     connectionIssueCode: null,
     connectionDetail: '已连接',
+    showConnectionNotice: true,
     focusBlocked: false,
     onValueChange: vi.fn(),
     onSend: vi.fn(),
     onStop: vi.fn(),
     onModeChange: vi.fn(),
     onNewSession: vi.fn(),
+    onNewSessionWithDraft: vi.fn(),
     onRetryConnection: vi.fn(),
     onOpenConnectionCenter: vi.fn(),
     ...overrides,
@@ -70,7 +72,10 @@ function renderComposer(
 }
 
 describe('Composer', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it('does not send when Enter confirms a Chinese IME composition', () => {
     const onSend = vi.fn();
@@ -115,13 +120,18 @@ describe('Composer', () => {
   it('makes a restored local-history session read-only and starts a blank task explicitly', async () => {
     const user = userEvent.setup();
     const onNewSession = vi.fn();
+    const onNewSessionWithDraft = vi.fn();
     renderComposer(makeSession({ continuity: 'local-history-only', acpSessionId: null }), {
       onNewSession,
+      onNewSessionWithDraft,
     });
 
     expect(screen.queryByRole('textbox', { name: '任务输入' })).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('这是本地历史记录，Grok 上下文未恢复');
+    expect(screen.getByRole('textbox', { name: '保留的未发送草稿' })).toHaveValue('执行刚才的方案');
 
+    await user.click(screen.getByRole('button', { name: '新建任务并带上草稿' }));
+    expect(onNewSessionWithDraft).toHaveBeenCalledWith('执行刚才的方案');
     await user.click(screen.getByRole('button', { name: '新建空白任务' }));
     expect(onNewSession).toHaveBeenCalledOnce();
   });
@@ -198,5 +208,102 @@ describe('Composer', () => {
     await user.click(screen.getByRole('button', { name: /重试/ }));
     expect(onRetryConnection).toHaveBeenCalledOnce();
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('hides the duplicated connection notice while keeping the compact footer hint', () => {
+    renderComposer(makeSession(), {
+      connectionStatus: 'error',
+      connectionIssueCode: 'timeout',
+      connectionDetail: '连接 Grok ACP 超时。',
+      showConnectionNotice: false,
+    });
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('Grok 尚未连接 · 当前内容仅保存在草稿中')).toBeInTheDocument();
+  });
+
+  it('resizes when a template fills the draft and caps long input at 220 pixels', () => {
+    const rendered = renderComposer(makeSession(), { value: '' });
+    const textbox = screen.getByRole('textbox', {
+      name: '任务输入',
+    }) as HTMLTextAreaElement;
+    let measuredHeight = 28;
+    Object.defineProperty(textbox, 'scrollHeight', {
+      configurable: true,
+      get: () => measuredHeight,
+    });
+
+    rendered.rerender(<Composer {...rendered.props} value="" />);
+    expect(textbox.style.height).toBe('52px');
+    expect(textbox.style.overflowY).toBe('hidden');
+
+    measuredHeight = 148;
+    rendered.rerender(<Composer {...rendered.props} value={'第一行\n第二行\n第三行'} />);
+    expect(textbox.style.height).toBe('148px');
+    expect(textbox.style.overflowY).toBe('hidden');
+
+    measuredHeight = 420;
+    rendered.rerender(<Composer {...rendered.props} value={'很长的任务说明\n'.repeat(40)} />);
+    expect(textbox.style.height).toBe('220px');
+    expect(textbox.style.overflowY).toBe('auto');
+  });
+
+  it('remeasures the draft after switching sessions', () => {
+    const rendered = renderComposer(makeSession({ id: 'session-1' }));
+    const textbox = screen.getByRole('textbox', {
+      name: '任务输入',
+    }) as HTMLTextAreaElement;
+    let measuredHeight = 132;
+    Object.defineProperty(textbox, 'scrollHeight', {
+      configurable: true,
+      get: () => measuredHeight,
+    });
+
+    rendered.rerender(
+      <Composer {...rendered.props} session={makeSession({ id: 'session-1' })} value="多行草稿" />,
+    );
+    expect(textbox.style.height).toBe('132px');
+
+    measuredHeight = 30;
+    rendered.rerender(
+      <Composer {...rendered.props} session={makeSession({ id: 'session-2' })} value="短草稿" />,
+    );
+    expect(screen.getByRole('textbox', { name: '任务输入' })).not.toBe(textbox);
+    expect(screen.getByRole('textbox', { name: '任务输入' })).toHaveStyle({ height: '52px' });
+  });
+
+  it('remeasures the same draft when Windows Snap or a side panel changes its width', () => {
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    const disconnect = vi.fn();
+    class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(callback);
+      }
+      observe = vi.fn();
+      disconnect = disconnect;
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    renderComposer(makeSession());
+    const textbox = screen.getByRole('textbox', {
+      name: '任务输入',
+    }) as HTMLTextAreaElement;
+    Object.defineProperty(textbox, 'scrollHeight', {
+      configurable: true,
+      value: 176,
+    });
+
+    expect(resizeCallbacks).toHaveLength(1);
+    resizeCallbacks[0]?.(
+      [
+        {
+          target: textbox,
+          contentRect: { width: 320 },
+        } as unknown as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+
+    expect(textbox.style.height).toBe('176px');
   });
 });

@@ -12,6 +12,7 @@ import type {
   ConnectionIssueCode,
   CreatedSession,
   GrokConnectionEvent,
+  GrokLogoutResult,
   GrokStatus,
   PermissionRequestEvent,
   PermissionResolution,
@@ -40,6 +41,7 @@ import { terminateWindowsProcessTree, windowsJobRunnerCommand } from './windows-
 const execFileAsync = promisify(execFile);
 const CONNECTION_TIMEOUT_MS = 20_000;
 const OPERATION_TIMEOUT_MS = 30_000;
+const LOGOUT_TIMEOUT_MS = 10_000;
 const PERMISSION_TIMEOUT_MS = 10 * 60_000;
 const SHUTDOWN_GRACE_MS = 1_500;
 const PROMPT_IDLE_TIMEOUT_MS = 15 * 60_000;
@@ -191,6 +193,102 @@ function sanitizeAgentModes(modes: acp.SessionModeState | null | undefined): {
 function safeMetadata(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
   return sanitizeDiagnosticLine(value, homedir(), '', 512) || undefined;
+}
+
+function environmentHasValue(
+  environment: Readonly<Record<string, unknown>>,
+  requestedName: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const normalized = platform === 'win32' ? requestedName.toUpperCase() : requestedName;
+  return Object.entries(environment).some(
+    ([name, value]) =>
+      (platform === 'win32' ? name.toUpperCase() : name) === normalized &&
+      typeof value === 'string' &&
+      value.trim().length > 0,
+  );
+}
+
+function accountLabelFromLogoutOutput(output: string): string | null {
+  const match = output.match(/was\s+signed\s+in\s+as\s+([^\r\n)]+)/iu);
+  if (!match?.[1]) return null;
+  const label = sanitizeDiagnosticLine(match[1].trim(), homedir(), '', 320);
+  return label || null;
+}
+
+type CliLogoutVerification = {
+  confirmed: boolean;
+  changed: boolean;
+  alreadyLoggedOut: boolean;
+  accountLabel: string | null;
+  detail: string;
+};
+
+async function verifyLogoutWithCli(binaryPath: string): Promise<CliLogoutVerification> {
+  const command = grokCommand(binaryPath, ['--no-auto-update', 'logout'], process.platform);
+  let output = '';
+  let commandSucceeded = false;
+  try {
+    const result = await execFileAsync(command.file, command.args, {
+      timeout: LOGOUT_TIMEOUT_MS,
+      encoding: 'utf8',
+      maxBuffer: MAX_VERSION_OUTPUT_BYTES,
+      windowsHide: true,
+      env: buildGrokChildEnvironment(process.env),
+    });
+    commandSucceeded = true;
+    output = `${result.stdout}${result.stderr}`;
+  } catch (error) {
+    const details = error as { stdout?: unknown; stderr?: unknown };
+    output = `${typeof details.stdout === 'string' ? details.stdout : ''}${
+      typeof details.stderr === 'string' ? details.stderr : ''
+    }`;
+    if (!output.trim()) {
+      return {
+        confirmed: false,
+        changed: false,
+        alreadyLoggedOut: false,
+        accountLabel: null,
+        detail: safeErrorDetail(error, 'Grok CLI 注销命令执行失败。'),
+      };
+    }
+  }
+
+  const normalized = output.toLowerCase();
+  const alreadyLoggedOut =
+    normalized.includes('already logged out') ||
+    normalized.includes('not logged in') ||
+    normalized.includes('not signed in') ||
+    normalized.includes('no active login') ||
+    normalized.includes('未登录');
+  const changed =
+    !alreadyLoggedOut &&
+    (normalized.includes('logged out') ||
+      normalized.includes('signed out') ||
+      normalized.includes('已退出'));
+  const detail = sanitizeDiagnosticLine(
+    output,
+    homedir(),
+    commandSucceeded ? 'Grok CLI 注销命令已完成。' : 'Grok CLI 注销命令未完成。',
+    2_000,
+  );
+  if (!commandSucceeded) {
+    return {
+      confirmed: false,
+      changed: false,
+      alreadyLoggedOut: false,
+      accountLabel: null,
+      detail,
+    };
+  }
+
+  return {
+    confirmed: true,
+    changed,
+    alreadyLoggedOut,
+    accountLabel: accountLabelFromLogoutOutput(output),
+    detail,
+  };
 }
 
 export function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
@@ -374,6 +472,16 @@ export function classifyConnectionIssue(detail: string): {
   if (normalized.includes('未找到 grok')) {
     return { issueCode: 'binary_missing', retryable: true };
   }
+  if (
+    normalized.includes('auth_required') ||
+    normalized.includes('auth required') ||
+    normalized.includes('authentication required') ||
+    normalized.includes('需要登录') ||
+    normalized.includes('尚未登录') ||
+    normalized.includes('未登录')
+  ) {
+    return { issueCode: 'authentication_required', retryable: true };
+  }
   if (normalized.includes('身份验证') || normalized.includes('authenticate')) {
     return {
       issueCode: normalized.includes('尚未支持')
@@ -416,10 +524,17 @@ export class GrokAcpManager {
   private lastStderr = '';
   private teardownPromise: Promise<void> | null = null;
   private disconnectPromise: Promise<void> | null = null;
+  private logoutPromise: Promise<GrokLogoutResult> | null = null;
   private shuttingDown = false;
   private connectionGeneration = 0;
+  private connectionIntentGeneration = 0;
   private connectPromiseGeneration = -1;
   private readyGeneration = -1;
+  private readyEvent: GrokConnectionEvent | null = null;
+  private binaryPath: string | null = null;
+  private authenticated: boolean | null = null;
+  private authMethod: string | null = null;
+  private logoutSupported = false;
 
   constructor(
     private readonly clientVersion: string,
@@ -490,6 +605,8 @@ export class GrokAcpManager {
 
   async connect(): Promise<GrokConnectionEvent> {
     if (this.shuttingDown) throw new Error('应用正在退出，无法启动新的 Grok 会话。');
+    if (this.logoutPromise) throw new Error('正在退出 Grok 账号，已取消连接请求。');
+    const intentGeneration = this.connectionIntentGeneration;
     if (
       this.connection &&
       !this.connection.signal.aborted &&
@@ -499,7 +616,15 @@ export class GrokAcpManager {
       this.process.signalCode === null &&
       this.readyGeneration === this.connectionGeneration
     ) {
-      return { status: 'ready', detail: '已连接本机 Grok Build' };
+      return (
+        this.readyEvent ?? {
+          status: 'ready',
+          detail: '已建立 Grok ACP 连接。',
+          authenticated: this.authenticated,
+          authMethod: this.authMethod,
+          logoutSupported: this.logoutSupported,
+        }
+      );
     }
     let generation = this.connectionGeneration;
     if (this.connectPromise && this.connectPromiseGeneration === generation) {
@@ -516,8 +641,8 @@ export class GrokAcpManager {
       if (this.disconnectPromise) await this.disconnectPromise;
       if (this.teardownPromise) await this.teardownPromise;
       if (this.process) await this.teardownCurrent(this.process);
-      this.assertConnectionAttempt(generation);
-      return this.startConnection(generation);
+      this.assertConnectionAttempt(generation, intentGeneration);
+      return this.startConnection(generation, intentGeneration);
     })();
     this.connectPromise = attempt;
     this.connectPromiseGeneration = generation;
@@ -532,21 +657,44 @@ export class GrokAcpManager {
     return attempt;
   }
 
-  private assertConnectionAttempt(generation: number): void {
+  async reconnect(): Promise<GrokConnectionEvent> {
+    if (this.shuttingDown) throw new Error('应用正在退出，无法重新连接 Grok。');
+    if (this.logoutPromise) throw new Error('正在退出 Grok 账号，已取消重新连接请求。');
+    const intentGeneration = this.connectionIntentGeneration;
+    await this.disconnectCurrent();
+    this.assertConnectionIntent(intentGeneration);
+    if (this.process || this.teardownPromise) {
+      throw new Error('旧的 Grok ACP 进程尚未确认结束，已阻止启动第二个本地代理。');
+    }
+    return this.connect();
+  }
+
+  private assertConnectionIntent(intentGeneration: number): void {
+    if (intentGeneration !== this.connectionIntentGeneration || this.logoutPromise) {
+      throw new Error('Grok 连接请求已被后发的断开或退出账号操作取消。');
+    }
+  }
+
+  private assertConnectionAttempt(generation: number, intentGeneration: number): void {
     if (this.shuttingDown) throw new Error('应用正在退出，无法启动新的 Grok 会话。');
+    this.assertConnectionIntent(intentGeneration);
     if (generation !== this.connectionGeneration) {
       throw new Error('Grok 连接请求已取消。');
     }
   }
 
-  private async startConnection(generation: number): Promise<GrokConnectionEvent> {
-    this.assertConnectionAttempt(generation);
+  private async startConnection(
+    generation: number,
+    intentGeneration: number,
+  ): Promise<GrokConnectionEvent> {
+    this.assertConnectionAttempt(generation, intentGeneration);
     this.connectionEvent({ status: 'connecting', detail: '正在启动 Grok ACP…' });
     const binaryPath = await resolveGrokBinary();
     if (!binaryPath) {
       throw new Error('未找到 Grok Build。请先安装官方 grok CLI。');
     }
-    this.assertConnectionAttempt(generation);
+    this.assertConnectionAttempt(generation, intentGeneration);
+    this.binaryPath = binaryPath;
 
     const directCommand = grokCommand(
       binaryPath,
@@ -669,19 +817,24 @@ export class GrokAcpManager {
       }
 
       const authMethods = initialized.authMethods ?? [];
+      let authenticated: boolean | null = authMethods.length > 0 ? false : null;
+      let selectedAuthMethod: acp.AuthMethod | null = null;
       if (authMethods.length > 0) {
+        const hasXaiApiKey = environmentHasValue(process.env, 'XAI_API_KEY');
         const candidates = [
           authMethods.find((method) => method.id === 'cached_token'),
-          authMethods.find((method) => method.id === 'xai.api_key'),
+          hasXaiApiKey ? authMethods.find((method) => method.id === 'xai.api_key') : undefined,
           authMethods.find((method) => method.id.includes('cached')),
         ].filter(
           (method, index, all): method is acp.AuthMethod =>
             Boolean(method) && all.findIndex((item) => item?.id === method?.id) === index,
         );
         if (candidates.length === 0) {
+          if (!hasXaiApiKey && authMethods.some((method) => method.id === 'xai.api_key')) {
+            throw new Error('Grok 需要登录或 XAI_API_KEY，当前未检测到可用的身份凭据。');
+          }
           throw new Error('Grok 需要当前客户端尚未支持的身份验证方式。');
         }
-        let authenticated = false;
         let lastAuthError: unknown;
         for (const method of candidates) {
           try {
@@ -694,6 +847,7 @@ export class GrokAcpManager {
               'Grok 身份验证超时。',
             );
             authenticated = true;
+            selectedAuthMethod = method;
             break;
           } catch (error) {
             lastAuthError = error;
@@ -704,18 +858,30 @@ export class GrokAcpManager {
         }
       }
 
-      this.assertConnectionAttempt(generation);
+      this.assertConnectionAttempt(generation, intentGeneration);
       if (this.connection !== connection || this.process !== child) {
         throw new Error('Grok 连接已失效。');
       }
       this.readyGeneration = generation;
-
-      return this.connectionEvent({
+      this.authenticated = authenticated;
+      this.authMethod = selectedAuthMethod
+        ? (safeMetadata(selectedAuthMethod.name) ?? safeMetadata(selectedAuthMethod.id) ?? null)
+        : null;
+      this.logoutSupported = initialized.agentCapabilities?.auth?.logout != null;
+      const readyEvent: GrokConnectionEvent = {
         status: 'ready',
-        detail: '已通过 ACP 连接本机 Grok Build',
+        detail:
+          authenticated === true
+            ? `已通过${this.authMethod ? `“${this.authMethod}”` : '代理声明的方式'}完成 ACP 身份验证并连接本机 Grok Build。`
+            : '已建立 Grok ACP 连接；代理未声明需要由客户端执行的身份验证步骤。',
         agentName: safeMetadata(initialized.agentInfo?.title ?? initialized.agentInfo?.name),
         agentVersion: safeMetadata(initialized.agentInfo?.version),
-      });
+        authenticated,
+        authMethod: this.authMethod,
+        logoutSupported: this.logoutSupported,
+      };
+      this.readyEvent = readyEvent;
+      return this.connectionEvent(readyEvent);
     } catch (error) {
       const ownsChild = this.process === child;
       if (ownsChild) this.connectionGeneration += 1;
@@ -1213,6 +1379,10 @@ export class GrokAcpManager {
     this.connection = null;
     this.process = null;
     this.readyGeneration = -1;
+    this.readyEvent = null;
+    this.authenticated = null;
+    this.authMethod = null;
+    this.logoutSupported = false;
     this.sessions.clear();
     this.earlySessionEvents.clear();
     for (const turn of this.activeTurns.values()) {
@@ -1259,7 +1429,142 @@ export class GrokAcpManager {
     }
   }
 
+  async logout(): Promise<GrokLogoutResult> {
+    if (this.logoutPromise) return this.logoutPromise;
+    this.connectionIntentGeneration += 1;
+    const operation = this.performLogout();
+    this.logoutPromise = operation;
+    try {
+      return await operation;
+    } finally {
+      if (this.logoutPromise === operation) this.logoutPromise = null;
+    }
+  }
+
+  private async performLogout(): Promise<GrokLogoutResult> {
+    const binaryPath = this.binaryPath ?? (await resolveGrokBinary());
+    const connection = this.connection;
+    const hadAuthenticatedConnection = this.authenticated === true;
+    const advertisedLogout = this.logoutSupported;
+    let acpLogoutSucceeded = false;
+    let acpLogoutError: string | null = null;
+
+    if (advertisedLogout && connection && !connection.signal.aborted) {
+      try {
+        await withTimeout(connection.logout({}), LOGOUT_TIMEOUT_MS, 'Grok ACP 注销请求超时。');
+        acpLogoutSucceeded = true;
+      } catch (error) {
+        acpLogoutError = safeErrorDetail(error, 'Grok ACP 注销失败。');
+      }
+    }
+
+    try {
+      await this.disconnectCurrent();
+    } catch (error) {
+      const detail = `无法确认旧的 Grok ACP 进程已结束，已停止注销流程以避免凭据被后台进程重新写入：${safeErrorDetail(
+        error,
+        '本地代理清理失败。',
+      )}`;
+      const result: GrokLogoutResult = {
+        confirmed: false,
+        status: 'failed',
+        accountLabel: null,
+        detail,
+      };
+      if (!this.shuttingDown) {
+        this.connectionEvent({
+          status: 'error',
+          detail,
+          authenticated: null,
+          authMethod: null,
+          logoutSupported: false,
+          issueCode: 'process_failed',
+          retryable: true,
+        });
+      }
+      return result;
+    }
+
+    let result: GrokLogoutResult;
+    if (!binaryPath) {
+      result = acpLogoutSucceeded
+        ? {
+            confirmed: true,
+            status: 'logged_out',
+            accountLabel: null,
+            detail: 'ACP 已确认退出登录并停止本地代理；未找到 CLI，无法进行第二次命令行复核。',
+          }
+        : {
+            confirmed: false,
+            status: 'failed',
+            accountLabel: null,
+            detail: '未找到 Grok Build CLI，无法确认登录状态。',
+          };
+    } else {
+      const cli = await verifyLogoutWithCli(binaryPath);
+      if (cli.confirmed) {
+        const status =
+          cli.changed || acpLogoutSucceeded || hadAuthenticatedConnection
+            ? 'logged_out'
+            : 'already_logged_out';
+        result = {
+          confirmed: true,
+          status,
+          accountLabel: cli.accountLabel,
+          detail:
+            status === 'logged_out'
+              ? '已退出 Grok 登录，并确认本地代理已经停止。'
+              : '当前没有有效的 Grok 登录，本地代理已经停止。',
+        };
+      } else if (acpLogoutSucceeded) {
+        result = {
+          confirmed: true,
+          status: 'logged_out',
+          accountLabel: null,
+          detail: `ACP 已确认退出登录并停止本地代理；CLI 复核未完成：${cli.detail}`,
+        };
+      } else {
+        const causes = [acpLogoutError, cli.detail].filter(Boolean).join('；');
+        result = {
+          confirmed: false,
+          status: 'failed',
+          accountLabel: null,
+          detail: `未能确认 Grok 已退出：${causes || '注销方式不可用。'}`,
+        };
+      }
+    }
+
+    if (!this.shuttingDown) {
+      this.connectionEvent(
+        result.confirmed
+          ? {
+              status: 'offline',
+              detail: result.detail,
+              authenticated: false,
+              authMethod: null,
+              logoutSupported: false,
+              retryable: true,
+            }
+          : {
+              status: 'error',
+              detail: result.detail,
+              authenticated: null,
+              authMethod: null,
+              logoutSupported: false,
+              issueCode: 'authentication_failed',
+              retryable: true,
+            },
+      );
+    }
+    return result;
+  }
+
   async disconnect(): Promise<void> {
+    this.connectionIntentGeneration += 1;
+    await this.disconnectCurrent();
+  }
+
+  private async disconnectCurrent(): Promise<void> {
     if (this.disconnectPromise) {
       await this.disconnectPromise;
       return;
@@ -1291,6 +1596,7 @@ export class GrokAcpManager {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    if (this.logoutPromise) await this.logoutPromise;
     try {
       await this.disconnect();
     } catch {

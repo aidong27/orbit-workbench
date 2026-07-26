@@ -37,8 +37,10 @@ Orbit Workbench gives an already-installed Grok Build CLI a Chinese desktop inte
 | --- | --- |
 | Real ACP sessions | Streamed messages, summaries, plans, tool calls, and completion status from the local CLI. |
 | Guided connection | Separates CLI detection from ACP readiness, with in-place retry and copyable redacted diagnostics. |
+| Account control | Force-restarts the local agent for fresh authentication and provides an explicit, verified Grok logout flow. |
 | Truthful state | History continuity, mode switches, and streamed messages reflect protocol-confirmed state rather than UI assumptions. |
 | Chinese-first UX | Chinese workspace, command palette, settings, permission prompts, and errors. |
+| Everyday usability | Larger text, an auto-growing composer, restart-safe per-session drafts, and searchable recent tasks. |
 | Local-first boundary | Credentials, model requests, and tool execution stay with the user's CLI. |
 | Explicit permissions | Sensitive ACP requests enter a visible queue and are never approved by the UI by default. |
 | Git awareness | Current branch, changed files, and diff statistics without shell-interpolated arguments. |
@@ -46,7 +48,7 @@ Orbit Workbench gives an already-installed Grok Build CLI a Chinese desktop inte
 
 ## Supported platforms
 
-The current source version is **`0.2.0-alpha.4`**; downloadable builds and the latest published tag are listed on [Releases](https://github.com/aidong27/orbit-workbench/releases). Alpha builds are intended for testing and review, not irreplaceable workspaces.
+The current development source version is **`0.2.0-alpha.5`**. Downloadable builds remain whatever is explicitly listed on [Releases](https://github.com/aidong27/orbit-workbench/releases); do not treat a source version as an already-published package. Alpha builds are intended for testing and review, not irreplaceable workspaces.
 
 | Platform | Architecture | Packages | Status |
 | --- | --- | --- | --- |
@@ -57,7 +59,7 @@ The current source version is **`0.2.0-alpha.4`**; downloadable builds and the l
 ## Installation
 
 1. Install and authenticate Grok Build CLI using the [official xAI documentation](https://docs.x.ai/build/overview), then verify `grok --version` and `grok login`.
-2. Download an artifact only when the matching `v0.2.0-alpha.4` prerelease is present on [Releases](https://github.com/aidong27/orbit-workbench/releases). Until then, build this source version locally; do not rename an older artifact.
+2. Download only a tag and matching artifact that are actually present on [Releases](https://github.com/aidong27/orbit-workbench/releases). A development source version is not proof that its package has been published; do not rename an older artifact.
 3. On Windows, the app checks `GROK_BINARY`, `GROK_BIN_DIR`, the official `%USERPROFILE%\.grok\bin\grok.exe` location, and absolute directories in `PATH`. It accepts only absolute file paths ending in `.exe`, not `.cmd` or `.bat` wrappers; the missing-CLI screen provides xAI's official PowerShell installer command as a copy-only action and warns that the pipeline downloads and immediately executes the script.
 
 > [!WARNING]
@@ -88,7 +90,7 @@ pnpm dist:mac    # macOS arm64 packages
 
 ## Security model
 
-Orbit Workbench's UI and local state do not read or store `XAI_API_KEY`. The Grok child receives an allowlisted set of runtime, Grok/xAI, proxy, and certificate variables; Node/Electron injection variables are always blocked. The sandboxed renderer has no Node.js access. Raw ACP SDK objects are converted in the main process into typed, size-bounded display events before they cross validated IPC. Permission prompts identify their workspace, path, and session source. Persisted UI history uses a validated, versioned v3 format and is restored as local-history-only: it does not imply that the upstream agent context was resumed.
+Orbit Workbench's UI and local state do not read or store `XAI_API_KEY`. The Grok child receives an allowlisted set of runtime, Grok/xAI, proxy, and certificate variables; Node/Electron injection variables are always blocked. The sandboxed renderer has no Node.js access. Raw ACP SDK objects are converted in the main process into typed, size-bounded display events before they cross validated IPC. Permission prompts identify their workspace, path, and session source. Persisted UI history and bounded per-session drafts use a validated, versioned v4 format; restored timelines remain local-history-only and do not imply that the upstream agent context was resumed.
 
 Report vulnerabilities privately through [GitHub Private Vulnerability Reporting](https://github.com/aidong27/orbit-workbench/security/advisories/new). Never post credentials, private source code, or local absolute paths in a public issue. See [SECURITY.md](SECURITY.md).
 
@@ -98,7 +100,7 @@ Report vulnerabilities privately through [GitHub Private Vulnerability Reporting
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Support policy](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [0.2.0-alpha.4 release notes](docs/RELEASE_NOTES.md)
+- [0.2.0-alpha.4 development snapshot notes](docs/RELEASE_NOTES.md)
 - [Changelog](CHANGELOG.md)
 
 ## License and trademarks

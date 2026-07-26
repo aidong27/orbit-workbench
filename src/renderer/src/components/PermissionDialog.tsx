@@ -66,10 +66,12 @@ export function PermissionDialog({
   const [secondsRemaining, setSecondsRemaining] = useState(() =>
     Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1_000)),
   );
+  const expired = secondsRemaining <= 0;
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelRef.current?.focus();
+    if (cancelRef.current && !cancelRef.current.disabled) cancelRef.current.focus();
+    else dialogRef.current?.focus();
     return () => previous?.focus();
   }, []);
 
@@ -92,7 +94,9 @@ export function PermissionDialog({
     }
     if (event.key !== 'Tab') return;
     const focusable = Array.from(
-      dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [],
+      dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+      ) ?? [],
     );
     const first = focusable[0];
     const last = focusable.at(-1);
@@ -103,7 +107,12 @@ export function PermissionDialog({
     }
     if (document.activeElement === dialogRef.current) {
       event.preventDefault();
-      (event.shiftKey ? last : first).focus();
+      (event.shiftKey && cancelRef.current && !cancelRef.current.disabled
+        ? cancelRef.current
+        : event.shiftKey
+          ? last
+          : first
+      ).focus();
       return;
     }
     if (event.shiftKey && document.activeElement === first) {
@@ -135,10 +144,14 @@ export function PermissionDialog({
           <span>需要你的确认</span>
           <h2 id="permission-title">{toolTitle}</h2>
           <p id="permission-description">Grok Build 在继续之前需要获得这次操作的权限。</p>
-          <p>
-            请求将在 {Math.floor(secondsRemaining / 60)}:
-            {String(secondsRemaining % 60).padStart(2, '0')} 后自动拒绝。
-          </p>
+          {expired ? (
+            <p role="status">请求已过期，允许选项已禁用，正在等待代理完成拒绝。</p>
+          ) : (
+            <p>
+              请求将在 {Math.floor(secondsRemaining / 60)}:
+              {String(secondsRemaining % 60).padStart(2, '0')} 后自动拒绝。
+            </p>
+          )}
           {remainingCount > 0 && <p>完成后还有 {remainingCount} 项请求等待确认。</p>}
         </div>
         <div className={`permission-source ${source.background ? 'is-background' : ''}`}>
@@ -189,10 +202,16 @@ export function PermissionDialog({
           </div>
         </div>
         {rawInput && (
-          <div className="permission-command">
+          <section className="permission-command" aria-label={`${toolTitle}的完整输入`}>
             <TerminalSquare size={15} />
-            <pre dir="ltr">{rawInput}</pre>
-          </div>
+            <textarea
+              readOnly
+              dir="ltr"
+              value={rawInput}
+              aria-label={`${toolTitle}的完整输入，只读`}
+              spellCheck={false}
+            />
+          </section>
         )}
         <div className="permission-warning">
           <AlertTriangle size={14} />
@@ -216,7 +235,9 @@ export function PermissionDialog({
                     ? 'permission-option--persistent'
                     : ''
               }
-              disabled={submitting || (!source.verified && option.kind.startsWith('allow'))}
+              disabled={
+                submitting || expired || (!source.verified && option.kind.startsWith('allow'))
+              }
               onClick={() => onResolve(option.optionId, false)}
             >
               <span>{option.name}</span>
@@ -227,7 +248,7 @@ export function PermissionDialog({
             ref={cancelRef}
             type="button"
             className="permission-option--cancel"
-            disabled={submitting}
+            disabled={submitting || expired}
             onClick={() => onResolve(undefined, true)}
           >
             <Ban size={14} />

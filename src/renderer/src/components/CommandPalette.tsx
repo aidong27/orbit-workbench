@@ -1,12 +1,23 @@
-import { FolderOpen, PanelRight, Plus, Search, Settings, SidebarClose } from 'lucide-react';
+import {
+  FolderGit2,
+  FolderOpen,
+  MessageSquare,
+  PanelRight,
+  Plus,
+  Search,
+  Settings,
+  SidebarClose,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { shouldSubmitComposerKey } from '../lib/composer-input';
+import type { WorkSession, WorkspaceProject } from '../state/model';
 
 export interface CommandItem {
   id: string;
   label: string;
   hint: string;
   icon: typeof Search;
+  searchText?: string;
   run: () => void;
 }
 
@@ -19,6 +30,10 @@ interface CommandPaletteProps {
   onToggleSidebar: () => void;
   onToggleInspector: () => void;
   onOpenSettings: () => void;
+  projects?: WorkspaceProject[];
+  sessions?: WorkSession[];
+  onSelectProject?: (id: string) => void;
+  onSelectSession?: (id: string) => void;
 }
 
 export function CommandPalette({
@@ -30,12 +45,17 @@ export function CommandPalette({
   onToggleSidebar,
   onToggleInspector,
   onOpenSettings,
+  projects = [],
+  sessions = [],
+  onSelectProject,
+  onSelectSession,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const shortcutPrefix = platform === 'darwin' ? '⌘' : 'Ctrl+';
   const commands = useMemo<CommandItem[]>(
     () => [
@@ -74,6 +94,25 @@ export function CommandPalette({
         icon: Settings,
         run: onOpenSettings,
       },
+      ...projects.map((project) => ({
+        id: `project-${project.id}`,
+        label: `切换工作区：${project.name}`,
+        hint: project.branch ?? '工作区',
+        searchText: `${project.name} ${project.path} ${project.branch ?? ''} 工作区 project workspace`,
+        icon: FolderGit2,
+        run: () => onSelectProject?.(project.id),
+      })),
+      ...[...sessions]
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, 30)
+        .map((session) => ({
+          id: `session-${session.id}`,
+          label: `打开任务：${session.title}`,
+          hint: projects.find((project) => project.id === session.projectId)?.name ?? '最近任务',
+          searchText: `${session.title} 任务 session history`,
+          icon: MessageSquare,
+          run: () => onSelectSession?.(session.id),
+        })),
     ],
     [
       onNewSession,
@@ -81,10 +120,19 @@ export function CommandPalette({
       onToggleSidebar,
       onToggleInspector,
       onOpenSettings,
+      onSelectProject,
+      onSelectSession,
+      projects,
+      sessions,
       shortcutPrefix,
     ],
   );
-  const filtered = commands.filter((command) => command.label.includes(query.trim()));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = commands.filter((command) =>
+    `${command.label} ${command.hint} ${command.searchText ?? ''}`
+      .toLocaleLowerCase()
+      .includes(normalizedQuery),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +146,14 @@ export function CommandPalette({
       returnFocusRef.current?.focus();
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      itemRefs.current[selectedIndex]?.scrollIntoView?.({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, selectedIndex]);
 
   if (!open) return null;
   const run = (command: CommandItem): void => {
@@ -113,11 +169,18 @@ export function CommandPalette({
     }
     if (event.key !== 'Tab') return;
     const focusable = [
-      ...(dialogRef.current?.querySelectorAll<HTMLElement>('input, button:not(:disabled)') ?? []),
+      ...(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'input, button:not(:disabled):not([tabindex="-1"])',
+      ) ?? []),
     ];
     const first = focusable[0];
     const last = focusable.at(-1);
     if (!first || !last) return;
+    if (first === last) {
+      event.preventDefault();
+      first.focus();
+      return;
+    }
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
@@ -183,6 +246,7 @@ export function CommandPalette({
             }}
             placeholder="搜索命令…"
             role="combobox"
+            aria-label="搜索命令、工作区和任务"
             aria-controls="command-results"
             aria-expanded="true"
             aria-activedescendant={
@@ -192,12 +256,15 @@ export function CommandPalette({
           <kbd>Esc</kbd>
         </div>
         <div className="command-palette__group" id="command-results" role="listbox">
-          <span>常用命令</span>
+          <span>命令、工作区与任务</span>
           {filtered.map((command, index) => {
             const Icon = command.icon;
             return (
               <button
                 type="button"
+                ref={(element) => {
+                  itemRefs.current[index] = element;
+                }}
                 key={command.id}
                 id={`command-${command.id}`}
                 className={index === selectedIndex ? 'is-active' : ''}
@@ -205,6 +272,7 @@ export function CommandPalette({
                 onClick={() => run(command)}
                 role="option"
                 aria-selected={index === selectedIndex}
+                tabIndex={-1}
               >
                 <span className="command-palette__icon">
                   <Icon size={15} />

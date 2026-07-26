@@ -2,7 +2,7 @@
 
 # 安装与故障排查 / Installation and Troubleshooting
 
-本指南对应星轨工作台源码版本 `0.2.0-alpha.4`：Windows x64 与 macOS arm64。可下载版本与最新公开标签以仓库 Releases 页面为准。
+本指南使用 `<版本>` 表示 Release 页面实际列出的版本号；开发源码版本可能更高，但不代表同版本安装包已经发布。Windows x64 与 macOS arm64 的实际可下载版本始终以仓库 Releases 页面列出的标签和产物为准。
 
 > [!WARNING]
 > 当前 Alpha 包尚未进行 Windows Authenticode 签名；macOS 包也尚未进行 Apple Developer ID 签名或公证。请只从 `aidong27/orbit-workbench` 的 Releases 获取文件并核对校验值。不要从网盘、聊天附件或第三方镜像运行安装包。
@@ -30,10 +30,10 @@ irm https://x.ai/cli/install.ps1 | iex
 
 ### 安装版
 
-仅当 Releases 页面已经列出 `v0.2.0-alpha.4` 时下载：
+仅当 Releases 页面已经列出对应的 `v<版本>` 标签和文件时下载：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe
+Orbit-Workbench-<版本>-Windows-x64-Setup.exe
 ```
 
 安装器是 Unicode 的交互式 NSIS 安装包，允许选择安装目录，并会创建“星轨工作台”桌面与开始菜单快捷方式。安装目录可以包含空格和中文；项目的 Windows CI 会在此类路径中完成静默安装、启动和卸载验证。
@@ -42,10 +42,10 @@ Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe
 
 ### 便携版
 
-仅当 Releases 页面已经列出 `v0.2.0-alpha.4` 时下载：
+仅当 Releases 页面已经列出对应的 `v<版本>` 标签和文件时下载：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe
+Orbit-Workbench-<版本>-Windows-x64-Portable.exe
 ```
 
 便携版无需安装应用本身，不创建卸载项或快捷方式，可以从含空格和中文的目录启动，但仍需要本机已经存在可执行的 `grok.exe`。
@@ -83,7 +83,7 @@ Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe
 
 ```powershell
 $env:GROK_BINARY = 'C:\完整\路径\grok.exe'
-& '.\Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe'
+& '.\Orbit-Workbench-<版本>-Windows-x64-Portable.exe'
 ```
 
 持久环境变量设置后需要重新启动应用，使新进程读取到更新后的值。
@@ -93,8 +93,8 @@ $env:GROK_BINARY = 'C:\完整\路径\grok.exe'
 下载 DMG 或 ZIP：
 
 ```text
-Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.dmg
-Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.zip
+Orbit-Workbench-<版本>-macOS-arm64.dmg
+Orbit-Workbench-<版本>-macOS-arm64.zip
 ```
 
 DMG：打开后将“星轨工作台”拖到 Applications。ZIP：解压后将应用移动到 Applications。
@@ -114,22 +114,22 @@ CLI 检测顺序：
 Windows PowerShell：
 
 ```powershell
-Get-FileHash '.\Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe' -Algorithm SHA256
-Get-FileHash '.\Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe' -Algorithm SHA256
+Get-FileHash '.\Orbit-Workbench-<版本>-Windows-x64-Setup.exe' -Algorithm SHA256
+Get-FileHash '.\Orbit-Workbench-<版本>-Windows-x64-Portable.exe' -Algorithm SHA256
 Get-Content '.\SHA256SUMS-Windows-x64.txt'
 ```
 
 Windows CMD：
 
 ```bat
-certutil -hashfile Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe SHA256
+certutil -hashfile Orbit-Workbench-<版本>-Windows-x64-Setup.exe SHA256
 ```
 
 macOS：
 
 ```bash
-shasum -a 256 Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.dmg
-shasum -a 256 Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.zip
+shasum -a 256 Orbit-Workbench-<版本>-macOS-arm64.dmg
+shasum -a 256 Orbit-Workbench-<版本>-macOS-arm64.zip
 cat SHA256SUMS-macOS-arm64.txt
 ```
 
@@ -167,7 +167,7 @@ Alpha 包缺少 Authenticode、Apple Developer ID 签名或公证时，Windows S
 
 ### 清理本地界面历史
 
-星轨工作台使用 Electron 的用户数据目录保存带版本号的 v3 界面状态，包括工作区路径、会话标题和裁剪后的时间线。重启后这些记录只作为“仅本地历史”显示，不代表代理上下文已恢复。删除前先退出应用，并确认不再需要本地标题与文本。由于不同系统目录不同，项目不会在文档中提供宽泛的递归删除命令；可以通过系统应用数据管理或开发者工具定位准确目录。
+星轨工作台使用 Electron 的用户数据目录保存带版本号的 v4 界面状态，包括有界会话草稿、工作区路径、会话标题和裁剪后的时间线。重启后这些记录只作为“仅本地历史”显示，不代表代理上下文已恢复。删除前先退出应用，并确认不再需要本地标题与文本。由于不同系统目录不同，项目不会在文档中提供宽泛的递归删除命令；可以通过系统应用数据管理或开发者工具定位准确目录。
 
 ## 从源码构建
 
