@@ -57,8 +57,13 @@ function state(overrides: Partial<AppState> = {}): AppState {
     grokBinaryPath: null,
     grokCliVersion: null,
     grokAuthenticated: null,
+    grokAuthMethod: null,
+    grokLogoutSupported: false,
     grokAgentName: null,
     grokAgentVersion: null,
+    draftsBySessionId: {},
+    autoConnectGrok: true,
+    uiTextScale: 'large',
     pendingPermissions: [],
     sidebarCollapsed: false,
     inspectorOpen: true,
@@ -92,7 +97,7 @@ describe('versioned persistence', () => {
     });
   });
 
-  it('writes a v3 envelope without demo entities, ACP ids, or tool payloads', () => {
+  it('writes a v4 envelope without demo entities, ACP ids, or tool payloads', () => {
     const storage = localStorageMock();
     vi.stubGlobal('localStorage', storage);
     const sensitiveSession = session({
@@ -127,13 +132,14 @@ describe('versioned persistence', () => {
       schemaVersion: number;
       data: { projects: WorkspaceProject[]; sessions: WorkSession[] };
     };
-    expect(envelope.schemaVersion).toBe(3);
+    expect(envelope.schemaVersion).toBe(4);
     expect(envelope.data.projects.map((item) => item.id)).toEqual(['project-1']);
     expect(envelope.data.sessions.map((item) => item.id)).toEqual(['session-1']);
     expect(raw).not.toContain('live-acp-id');
     expect(raw).not.toContain('private.txt');
     expect(raw).not.toContain('secret');
     expect(storage.removeItem).toHaveBeenCalledWith(persistenceTestHelpers.V2_STATE_KEY);
+    expect(storage.removeItem).toHaveBeenCalledWith(persistenceTestHelpers.V3_STATE_KEY);
     expect(storage.removeItem).toHaveBeenCalledWith(persistenceTestHelpers.LEGACY_STATE_KEY);
   });
 
@@ -153,7 +159,7 @@ describe('versioned persistence', () => {
     const raw = storage.values.get(persistenceTestHelpers.PERSISTED_STATE_KEY);
     expect(raw).toBeTruthy();
     expect(JSON.parse(String(raw))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       data: {
         projects: [],
         sessions: [],
@@ -165,7 +171,7 @@ describe('versioned persistence', () => {
     expect(storage.values.has(persistenceTestHelpers.LEGACY_STATE_KEY)).toBe(false);
   });
 
-  it('round-trips an empty v3 state without reviving fallback projects', () => {
+  it('round-trips an empty v4 state without reviving fallback projects', () => {
     const storage = localStorageMock();
     vi.stubGlobal('localStorage', storage);
     saveState(
@@ -184,6 +190,81 @@ describe('versioned persistence', () => {
       activeProjectId: null,
       activeSessionId: null,
     });
+  });
+
+  it('round-trips bounded per-session drafts and usability preferences', () => {
+    const storage = localStorageMock();
+    vi.stubGlobal('localStorage', storage);
+    saveState(
+      state({
+        draftsBySessionId: {
+          'session-1': '继续检查 Windows 打包',
+          orphan: '不应保存',
+        },
+        autoConnectGrok: false,
+        uiTextScale: 'standard',
+      }),
+    );
+
+    const raw = storage.values.get(persistenceTestHelpers.PERSISTED_STATE_KEY);
+    expect(raw).toContain('继续检查 Windows 打包');
+    expect(raw).not.toContain('不应保存');
+
+    const restored = loadState(
+      state({
+        draftsBySessionId: {},
+        autoConnectGrok: true,
+        uiTextScale: 'large',
+      }),
+    );
+    expect(restored).toMatchObject({
+      draftsBySessionId: { 'session-1': '继续检查 Windows 打包' },
+      autoConnectGrok: false,
+      uiTextScale: 'standard',
+    });
+  });
+
+  it('migrates v3 state to v4 without reviving stale connection runtime', () => {
+    const storage = localStorageMock({
+      [persistenceTestHelpers.V3_STATE_KEY]: JSON.stringify({
+        schemaVersion: 3,
+        savedAt: 3,
+        data: {
+          projects: [project()],
+          sessions: [
+            {
+              id: 'session-1',
+              projectId: 'project-1',
+              title: 'v3 任务',
+              status: 'working',
+              timeline: [],
+              createdAt: 1,
+              updatedAt: 3,
+            },
+          ],
+          activeProjectId: 'project-1',
+          activeSessionId: 'session-1',
+        },
+      }),
+    });
+    vi.stubGlobal('localStorage', storage);
+
+    const restored = loadState(state({ projects: [], sessions: [] }));
+
+    expect(restored.sessions[0]).toMatchObject({
+      title: 'v3 任务',
+      acpSessionId: null,
+      continuity: 'fresh',
+      status: 'idle',
+    });
+    expect(restored.autoConnectGrok).toBe(false);
+    expect(
+      JSON.parse(String(storage.values.get(persistenceTestHelpers.PERSISTED_STATE_KEY))),
+    ).toMatchObject({
+      schemaVersion: 4,
+      data: { autoConnectGrok: false },
+    });
+    expect(storage.values.has(persistenceTestHelpers.V3_STATE_KEY)).toBe(false);
   });
 
   it('reports a storage failure without throwing into the active UI', () => {
@@ -265,7 +346,7 @@ describe('versioned persistence', () => {
     expect(restored.activeSessionId).toBe('valid');
   });
 
-  it('migrates a v2 envelope to v3 and only then removes old keys', () => {
+  it('migrates a v2 envelope to v4 and only then removes old keys', () => {
     const storage = localStorageMock({
       [persistenceTestHelpers.V2_STATE_KEY]: JSON.stringify({
         schemaVersion: 2,
@@ -313,7 +394,7 @@ describe('versioned persistence', () => {
     expect(
       JSON.parse(String(storage.values.get(persistenceTestHelpers.PERSISTED_STATE_KEY))),
     ).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       data: { projects: [{ id: 'project-1' }], sessions: [{ id: 'session-1' }] },
     });
     expect(storage.values.has(persistenceTestHelpers.V2_STATE_KEY)).toBe(false);
@@ -337,12 +418,12 @@ describe('versioned persistence', () => {
     expect(
       JSON.parse(String(storage.values.get(persistenceTestHelpers.PERSISTED_STATE_KEY))),
     ).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(storage.values.has(persistenceTestHelpers.LEGACY_STATE_KEY)).toBe(false);
   });
 
-  it('keeps v2 intact when the v3 migration write fails', () => {
+  it('keeps v2 intact when the v4 migration write fails', () => {
     const v2 = JSON.stringify({
       schemaVersion: 2,
       savedAt: 2,
@@ -369,7 +450,7 @@ describe('versioned persistence', () => {
     expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
-  it('keeps v1 intact when the v3 migration write fails', () => {
+  it('keeps v1 intact when the v4 migration write fails', () => {
     const v1 = JSON.stringify({
       projects: [project()],
       sessions: [],
@@ -412,7 +493,7 @@ describe('versioned persistence', () => {
     expect(loadState(fallback)).toBe(fallback);
   });
 
-  it('never revives older private history when a v3 record exists but is invalid', () => {
+  it('never revives older private history when a v4 record exists but is invalid', () => {
     const fallback = state();
     const storage = localStorageMock({
       [persistenceTestHelpers.PERSISTED_STATE_KEY]: '{broken',

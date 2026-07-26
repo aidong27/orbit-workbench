@@ -34,11 +34,11 @@ export default function App() {
   const connectionAttemptSequence = useRef(0);
   const connectionInFlight = useRef<Promise<void> | null>(null);
   const persistenceWarningShown = useRef(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [permissionSubmitting, setPermissionSubmitting] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [notice, setNotice] = useState<{
     id: number;
-    tone: 'info' | 'warning' | 'error';
+    tone: 'info' | 'success' | 'warning' | 'error';
     message: string;
   } | null>(null);
   stateRef.current = state;
@@ -171,15 +171,33 @@ export default function App() {
     };
   }, []);
 
-  const retryConnection = useCallback(() => {
+  const startConnection = useCallback((forceReconnect: boolean, remember = true) => {
     if (connectionInFlight.current) return;
+    if (remember) dispatch({ type: 'AUTO_CONNECT_GROK', enabled: true });
+    if (forceReconnect) {
+      acpSessionRoutes.current.clear();
+      unroutedAcpEvents.current.clear();
+      modeRequestsInFlight.current.clear();
+      dispatch({
+        type: 'CONNECTION_EVENT',
+        event: {
+          status: 'offline',
+          detail: '正在停止旧的 Grok ACP 代理并重新验证连接…',
+          authenticated: null,
+          authMethod: null,
+          logoutSupported: false,
+          retryable: true,
+        },
+      });
+    }
     const attemptId = ++connectionAttemptSequence.current;
-    const attempt = runEngineConnectionAttempt(desktopApi, attemptId, dispatch);
+    const attempt = runEngineConnectionAttempt(desktopApi, attemptId, dispatch, forceReconnect);
     connectionInFlight.current = attempt;
     void attempt.finally(() => {
       if (connectionInFlight.current === attempt) connectionInFlight.current = null;
     });
   }, []);
+  const retryConnection = useCallback(() => startConnection(true), [startConnection]);
 
   useEffect(() => {
     void desktopApi
@@ -200,8 +218,33 @@ export default function App() {
           message: cleanDesktopError(error, '无法读取应用信息'),
         });
       });
-    retryConnection();
-  }, [retryConnection]);
+    if (stateRef.current.autoConnectGrok) {
+      startConnection(false, false);
+      return;
+    }
+    const attemptId = ++connectionAttemptSequence.current;
+    dispatch({ type: 'CONNECTION_ATTEMPT', attemptId });
+    void desktopApi
+      .checkGrok()
+      .then((result) => {
+        dispatch({ type: 'GROK_INSPECTED', attemptId, result });
+        if (result.status === 'detected' || result.status === 'ready') {
+          dispatch({
+            type: 'CONNECTION_RESULT',
+            attemptId,
+            result: {
+              status: 'offline',
+              detail: '自动连接已关闭；已检测到 Grok CLI，但当前登录状态尚未验证。',
+              authenticated: null,
+              authMethod: null,
+              logoutSupported: false,
+              retryable: true,
+            },
+          });
+        }
+      })
+      .catch((error) => showError(error, '无法检测 Grok Build'));
+  }, [showError, startConnection]);
 
   const openWorkspace = useCallback(async () => {
     try {
@@ -225,6 +268,18 @@ export default function App() {
     }
     dispatch({ type: 'SESSION_CREATED', session: makeSession(project.id) });
   }, [openWorkspace]);
+  const newSessionWithDraft = useCallback((draft: string) => {
+    const current = stateRef.current;
+    const project = current.projects.find((item) => item.id === current.activeProjectId);
+    if (!project || project.demo) return;
+    const session = makeSession(project.id);
+    dispatch({
+      type: 'SESSION_CREATED',
+      session,
+      draft,
+      sourceDraftSessionId: current.activeSessionId ?? undefined,
+    });
+  }, []);
 
   const sendPrompt = useCallback(async (text: string) => {
     const current = stateRef.current;
@@ -296,6 +351,7 @@ export default function App() {
               dispatch({
                 type: 'MODE_SWITCH_FAILED',
                 sessionId: localSession.id,
+                modeId: desiredModeId,
                 requestId,
                 error: detail,
               });
@@ -318,6 +374,7 @@ export default function App() {
             dispatch({
               type: 'MODE_SWITCH_FAILED',
               sessionId: localSession.id,
+              modeId: desiredModeId,
               requestId,
               error: detail,
             });
@@ -343,12 +400,6 @@ export default function App() {
 
       const usesNativeModes = availableModes.length > 0;
       const enginePrompt = !usesNativeModes && desiredModeId === 'plan' ? `/plan ${text}` : text;
-      setDrafts((currentDrafts) => {
-        if (!(localSession.id in currentDrafts)) return currentDrafts;
-        const nextDrafts = { ...currentDrafts };
-        delete nextDrafts[localSession.id];
-        return nextDrafts;
-      });
       dispatch({ type: 'USER_MESSAGE', sessionId: localSession.id, text });
       try {
         await desktopApi.sendPrompt(acpSessionId, enginePrompt);
@@ -421,6 +472,7 @@ export default function App() {
           dispatch({
             type: 'MODE_SWITCH_FAILED',
             sessionId: session.id,
+            modeId,
             requestId,
             error: error instanceof Error ? error.message : '无法切换 Grok 会话模式',
           });
@@ -475,6 +527,33 @@ export default function App() {
   const toggleSidebar = useCallback(() => dispatch({ type: 'SIDEBAR_TOGGLED' }), []);
   const toggleInspector = useCallback(() => dispatch({ type: 'INSPECTOR_TOGGLED' }), []);
   const openSettings = useCallback(() => dispatch({ type: 'SETTINGS', open: true }), []);
+  const logoutGrok = useCallback(async () => {
+    if (logoutPending) return;
+    setLogoutPending(true);
+    try {
+      const result = await desktopApi.logoutGrok();
+      acpSessionRoutes.current.clear();
+      unroutedAcpEvents.current.clear();
+      dispatch({
+        type: 'GROK_LOGGED_OUT',
+        confirmed: result.confirmed,
+        detail: result.detail,
+      });
+      setNotice({
+        id: Date.now(),
+        tone: result.confirmed ? 'success' : 'warning',
+        message: result.accountLabel
+          ? `已退出 Grok 账号 ${result.accountLabel}。再次连接前请先确认登录账号。`
+          : result.detail,
+      });
+    } catch (error) {
+      const detail = cleanDesktopError(error, '无法确认 Grok 账号已退出');
+      dispatch({ type: 'GROK_LOGGED_OUT', confirmed: false, detail });
+      setNotice({ id: Date.now(), tone: 'error', message: detail });
+    } finally {
+      setLogoutPending(false);
+    }
+  }, [logoutPending]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -513,7 +592,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell platform-${state.appPlatform} ${state.sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${state.inspectorOpen ? '' : 'is-inspector-closed'}`}
+      className={`app-shell platform-${state.appPlatform} text-scale-${state.uiTextScale} ${state.sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${state.inspectorOpen ? '' : 'is-inspector-closed'}`}
     >
       <Sidebar
         state={state}
@@ -548,7 +627,11 @@ export default function App() {
                       connectionStatus={state.connectionStatus}
                       connectionIssueCode={state.connectionIssueCode}
                       onChoosePrompt={(prompt) => {
-                        setDrafts((current) => ({ ...current, [activeSession.id]: prompt }));
+                        dispatch({
+                          type: 'DRAFT_CHANGED',
+                          sessionId: activeSession.id,
+                          value: prompt,
+                        });
                       }}
                       onRetryConnection={retryConnection}
                       onOpenConnectionCenter={openSettings}
@@ -572,19 +655,21 @@ export default function App() {
             <Composer
               project={activeProject}
               session={activeSession}
-              value={activeSession ? (drafts[activeSession.id] ?? '') : ''}
+              value={activeSession ? (state.draftsBySessionId[activeSession.id] ?? '') : ''}
               connectionStatus={state.connectionStatus}
               connectionIssueCode={state.connectionIssueCode}
               connectionDetail={state.connectionDetail}
               focusBlocked={state.pendingPermissions.length > 0}
               onValueChange={(value) => {
                 if (!activeSession) return;
-                setDrafts((current) => ({ ...current, [activeSession.id]: value }));
+                dispatch({ type: 'DRAFT_CHANGED', sessionId: activeSession.id, value });
               }}
+              showConnectionNotice={Boolean(activeSession?.timeline.length)}
               onSend={sendPrompt}
               onStop={stopSession}
               onModeChange={changeMode}
               onNewSession={newSession}
+              onNewSessionWithDraft={newSessionWithDraft}
               onRetryConnection={retryConnection}
               onOpenConnectionCenter={openSettings}
             />
@@ -613,6 +698,10 @@ export default function App() {
         onToggleSidebar={toggleSidebar}
         onToggleInspector={toggleInspector}
         onOpenSettings={openSettings}
+        projects={state.projects}
+        sessions={state.sessions}
+        onSelectProject={(projectId) => dispatch({ type: 'PROJECT_SELECTED', projectId })}
+        onSelectSession={(sessionId) => dispatch({ type: 'SESSION_SELECTED', sessionId })}
       />
       <SettingsDialog
         open={state.settingsOpen}
@@ -626,6 +715,18 @@ export default function App() {
         cliVersion={state.grokCliVersion}
         agentName={state.grokAgentName}
         agentVersion={state.grokAgentVersion}
+        authenticated={state.grokAuthenticated}
+        authMethod={state.grokAuthMethod}
+        logoutSupported={state.grokLogoutSupported}
+        connectionRetryable={state.connectionRetryable}
+        uiTextScale={state.uiTextScale}
+        connectionActionsBlocked={state.sessions.some(
+          (session) =>
+            sessionBlocksInput(session.status) || session.modeSwitchStatus === 'switching',
+        )}
+        logoutPending={logoutPending}
+        onLogout={() => void logoutGrok()}
+        onTextScaleChange={(scale) => dispatch({ type: 'UI_TEXT_SCALE', scale })}
         onRetryConnection={retryConnection}
         onClose={() => dispatch({ type: 'SETTINGS', open: false })}
       />

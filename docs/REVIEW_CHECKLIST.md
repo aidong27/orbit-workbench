@@ -1,6 +1,6 @@
 # 跨平台公开预览检查清单
 
-本清单用于 `0.2.0-alpha.4` 及后续公开预览。只有代码、安装包、文档和仓库设置同时通过，才应创建公开 Release。
+本清单用于 `0.2.x` Alpha 及后续公开预览。只有代码、安装包、文档和仓库设置同时通过，才应创建公开 Release。
 
 ## 通用代码质量
 
@@ -69,7 +69,7 @@
 - [ ] Markdown 中的 HTML、脚本和危险 URL 无法执行。
 - [ ] 本地恢复数据不包含 ACP Session ID、权限请求或工具原始载荷。
 - [ ] 恢复的旧时间线标记为“仅本地历史”，不能在原视觉会话下静默新建 ACP session。
-- [ ] v1/v2 数据迁移到 v3 后通过 schema 校验，失效项目/会话引用得到修复。
+- [ ] v1/v2/v3 数据迁移到 v4 后通过 schema 校验，失效项目/会话与孤立草稿引用得到修复。
 - [ ] Grok 子进程只继承环境白名单，Node/Electron 注入变量始终被拒绝。
 - [ ] ACP NDJSON 单帧上限、诊断脱敏和 Electron fuses 在打包产物中验证通过。
 - [ ] `pnpm licenses:check` 通过，完整第三方许可证正文与 Chromium notices 已进入最终安装包。
@@ -98,7 +98,7 @@
 
 ## Release
 
-- [ ] `v0.2.0-alpha.4` 标签指向通过检查的 `main` 提交。
+- [ ] 准备发布的 `v<package.json version>` 标签指向通过检查的 `main` 提交。
 - [ ] Release 标记为 Pre-release，并包含 Windows/macOS 产物。
 - [ ] 文件名、架构和版本与 `package.json` 一致。
 - [ ] 每个产物有 SHA-256 校验值。

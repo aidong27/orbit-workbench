@@ -67,6 +67,7 @@ describe('connection onboarding', () => {
       />,
     );
 
+    expect(screen.getByRole('heading', { name: '连接完成，选择第一个工作区' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /打开本地工作区/ }));
     expect(onOpenWorkspace).toHaveBeenCalledOnce();
   });

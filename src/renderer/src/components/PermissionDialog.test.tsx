@@ -110,6 +110,29 @@ describe('PermissionDialog', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('来源无法验证，允许选项已禁用');
   });
 
+  it('disables stale permission choices once the request has expired', () => {
+    render(
+      <PermissionDialog
+        request={{ ...request, expiresAt: Date.now() - 1 }}
+        source={{
+          verified: true,
+          projectName: 'payment-service',
+          projectPath: '/workspaces/payment-service',
+          sessionTitle: '重构支付回调逻辑',
+          background: false,
+        }}
+        remainingCount={0}
+        submitting={false}
+        onResolve={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('请求已过期');
+    expect(screen.getByRole('button', { name: /允许一次/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^拒绝/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '取消这次操作' })).toBeDisabled();
+  });
+
   it('keeps reverse tab navigation inside the dialog after submission is re-enabled', () => {
     const source = {
       verified: true,

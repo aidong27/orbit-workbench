@@ -243,6 +243,19 @@ function registerIpc(): void {
       return { status: 'error' as const, detail, ...classifyConnectionIssue(detail) };
     }
   });
+  ipcMain.handle('grok:reconnect', async (event) => {
+    assertTrustedSender(event);
+    try {
+      return await grok.reconnect();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '重新连接 Grok Build 失败。';
+      return { status: 'error' as const, detail, ...classifyConnectionIssue(detail) };
+    }
+  });
+  ipcMain.handle('grok:logout', (event) => {
+    assertTrustedSender(event);
+    return grok.logout();
+  });
   ipcMain.handle('grok:create-session', (event, cwd: unknown) => {
     assertTrustedSender(event);
     return validateDirectory(cwd).then((safeCwd) => grok.createSession(safeCwd, event.sender.id));

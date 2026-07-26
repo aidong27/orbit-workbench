@@ -83,6 +83,24 @@ describe('connection diagnostic redaction', () => {
     }
   });
 
+  it('never includes an account email in copied diagnostics', () => {
+    const diagnostic = buildConnectionDiagnostic({
+      status: 'offline',
+      detail: '已退出 Grok 登录（developer@example.test），并确认本地代理已经停止。',
+      issueCode: 'authentication_required',
+      binaryPath: '/Users/developer/.grok/bin/grok',
+      cliVersion: 'grok 0.2.112 for developer@example.test',
+      agentName: null,
+      agentVersion: null,
+      appVersion: '0.2.0-alpha.5',
+      platform: 'darwin',
+      arch: 'arm64',
+    });
+
+    expect(diagnostic).not.toContain('developer@example.test');
+    expect(diagnostic).toContain('[邮箱已隐藏]');
+  });
+
   it('redacts quoted secrets with spaces and strips bidi formatting from copied diagnostics', () => {
     const diagnostic = sanitizeDiagnosticField(
       'password="two words secret" Authorization: "Bearer another secret" safe\u202Etxt',

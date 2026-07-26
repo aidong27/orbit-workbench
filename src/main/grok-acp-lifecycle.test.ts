@@ -33,6 +33,10 @@ describe('Grok ACP lifecycle helpers', () => {
   });
 
   it('classifies actionable connection failures without exposing raw protocol data', () => {
+    expect(classifyConnectionIssue('Authentication required')).toEqual({
+      issueCode: 'authentication_required',
+      retryable: true,
+    });
     expect(classifyConnectionIssue('Grok 身份验证失败。')).toEqual({
       issueCode: 'authentication_failed',
       retryable: true,

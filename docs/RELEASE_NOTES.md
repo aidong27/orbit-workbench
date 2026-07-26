@@ -1,6 +1,8 @@
 <!-- markdownlint-disable MD013 -->
 
-# Orbit Workbench 0.2.0-alpha.4
+# Orbit Workbench 0.2.0-alpha.4 开发快照说明
+
+> 这是源码开发快照的说明，不代表同版本安装包已经公开发布。可下载版本只以仓库 Releases 页面实际列出的标签和文件为准。
 
 `0.2.0-alpha.4` 是一次 Windows 可靠性、连接引导与高缩放可用性升级。它不扩张表面功能，重点保证 CLI 能被安全找到、窗口和文字在常见 Windows 显示设置下可用、安装包生命周期能被真实验证，并让复制出的诊断与权限来源保持可信。
 

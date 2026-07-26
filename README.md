@@ -37,8 +37,10 @@
 | --- | --- |
 | 真实 ACP 会话 | 直接连接本机 Grok Build 进程，呈现流式回复、过程摘要、计划与工具状态。 |
 | 连接引导 | 区分 CLI 检测与 ACP 就绪状态，失败后可就地重试并复制脱敏诊断。 |
+| 账号可控 | 可强制重启本机代理重新认证，也可在界面中安全退出 Grok 登录并关闭自动重连。 |
 | 状态真实 | 历史上下文、模式切换和流式消息均以协议确认结果为准，不用界面状态代替代理事实。 |
 | 中文优先 | 工作区、命令面板、设置、权限确认和错误信息均以中文组织。 |
+| 可读可写 | 大字模式、自动增高输入框、跨重启会话草稿和可搜索任务降低日常操作阻力。 |
 | 本地优先 | 界面不读取或保存 `XAI_API_KEY`；登录、模型请求和工具执行由用户自己的 CLI 负责。 |
 | 权限在前 | ACP 请求敏感操作时进入明确的确认队列，不在界面层默认放行。 |
 | Git 感知 | 展示当前分支、未提交文件和差异统计，不通过 shell 拼接 Git 参数。 |
@@ -46,7 +48,7 @@
 
 ## 平台支持
 
-当前源码版本为 **`0.2.0-alpha.4`**；可下载版本与最新公开标签以 [Releases](https://github.com/aidong27/orbit-workbench/releases) 页面为准。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
+当前开发源码版本为 **`0.2.0-alpha.5`**；当前公开下载仍以 [Releases](https://github.com/aidong27/orbit-workbench/releases) 页面列出的标签为准，不应把源码版本误当成已经发布的安装包。Alpha 构建用于测试和审阅，不建议用于无法回滚的重要项目。
 
 | 平台 | 架构 | 构建产物 | 状态 |
 | --- | --- | --- | --- |
@@ -77,11 +79,11 @@ irm https://x.ai/cli/install.ps1 | iex
 
 ### 2. 下载桌面应用
 
-前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)。仅当页面已经列出 `v0.2.0-alpha.4` 时，才按系统下载对应文件；若该预发布版本尚未出现，请从源码构建，不要把旧版本文件改名后使用：
+前往 [Releases](https://github.com/aidong27/orbit-workbench/releases)。只下载页面实际列出的标签及其同版本产物；开发源码版本不代表安装包已经发布，也不要把旧文件改名后使用。文件名格式为：
 
-- Windows x64：`Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Setup.exe`
-- Windows x64 便携版：`Orbit-Workbench-0.2.0-alpha.4-Windows-x64-Portable.exe`
-- macOS arm64：`Orbit-Workbench-0.2.0-alpha.4-macOS-arm64.dmg` 或 `.zip`
+- Windows x64：`Orbit-Workbench-<版本>-Windows-x64-Setup.exe`
+- Windows x64 便携版：`Orbit-Workbench-<版本>-Windows-x64-Portable.exe`
+- macOS arm64：`Orbit-Workbench-<版本>-macOS-arm64.dmg` 或 `.zip`
 
 > [!WARNING]
 > 当前 Alpha 安装包尚未进行 Windows Authenticode 签名；macOS 包也尚未进行 Apple Developer ID 签名或公证。系统可能显示来源警告。请只从本仓库 Releases 下载，并在运行前核对发布页提供的校验值；无法确认来源时请改为从源码构建。
@@ -140,7 +142,7 @@ Electron 主进程（路径验证、Git 检查、权限队列）
 - ACP SDK 原始对象先在主进程转换为类型化、限长且可安全显示的事件，renderer 不直接解释 SDK 协议对象。
 - 权限弹窗会显示来源工作区、路径和会话；超大、过深或无法安全归一化的载荷不会原样进入 renderer。
 - Windows 通过可审计、固定哈希的 x64 Job Object 监督器约束整棵 Grok 进程树；代理或 Electron 意外退出后不会只凭 leader 状态假定后代已经结束。
-- 本地保存界面偏好、工作区路径、会话标题、裁剪后的时间线，以及最近一次 Git 分支、文件状态列表和差异统计快照；这些数据使用带版本号和校验的 v3 格式，但当前不加密。
+- 本地保存界面偏好、按会话隔离的有界草稿、工作区路径、会话标题、裁剪后的时间线，以及最近一次 Git 分支、文件状态列表和差异统计快照；这些数据使用带版本号和校验的 v4 格式，但当前不加密。
 - ACP 会话 ID、权限请求和工具原始输入/输出不会跨进程持久化。
 - 重启后保存的旧时间线只作为“仅本地历史”展示，不代表上游代理上下文已经恢复；要继续工作需显式新建任务。
 
@@ -158,7 +160,7 @@ docs/            架构、安装和发布检查资料
 build/           原创应用图标与平台打包资源
 ```
 
-进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [0.2.0-alpha.4 发布说明](docs/RELEASE_NOTES.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
+进一步阅读：[架构说明](docs/ARCHITECTURE.md) · [0.2.0-alpha.4 开发快照说明](docs/RELEASE_NOTES.md) · [发布检查清单](docs/REVIEW_CHECKLIST.md) · [变更记录](CHANGELOG.md)
 
 ## 参与项目
 

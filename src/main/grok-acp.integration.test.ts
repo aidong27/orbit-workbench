@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -70,11 +73,27 @@ const describeOnSupportedPlatform =
   process.platform === 'win32' ? describe.skip : describe.sequential;
 
 describeOnSupportedPlatform('GrokAcpManager fake ACP process integration', () => {
-  const previousGrokBinary = process.env.GROK_BINARY;
+  const managedEnvironmentNames = [
+    'GROK_BINARY',
+    'GROK_FAKE_LIFECYCLE_LOG',
+    'GROK_FAKE_DISABLE_ACP_LOGOUT',
+    'GROK_FAKE_CLI_LOGOUT_MODE',
+    'GROK_FAKE_CACHED_AUTH_FAIL',
+    'XAI_API_KEY',
+  ] as const;
+  const previousEnvironment = new Map(
+    managedEnvironmentNames.map((name) => [name, process.env[name]]),
+  );
   let manager: GrokAcpManager;
+  let temporaryDirectory: string;
+  let lifecycleLogPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    for (const name of managedEnvironmentNames) delete process.env[name];
     process.env.GROK_BINARY = fakeAgentPath;
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'orbit-fake-acp-'));
+    lifecycleLogPath = join(temporaryDirectory, 'lifecycle.log');
+    process.env.GROK_FAKE_LIFECYCLE_LOG = lifecycleLogPath;
     manager = new GrokAcpManager('integration-test');
   });
 
@@ -82,10 +101,19 @@ describeOnSupportedPlatform('GrokAcpManager fake ACP process integration', () =>
     try {
       await manager.shutdown();
     } finally {
-      if (previousGrokBinary === undefined) delete process.env.GROK_BINARY;
-      else process.env.GROK_BINARY = previousGrokBinary;
+      for (const name of managedEnvironmentNames) {
+        const previous = previousEnvironment.get(name);
+        if (previous === undefined) delete process.env[name];
+        else process.env[name] = previous;
+      }
+      await rm(temporaryDirectory, { recursive: true, force: true });
     }
   });
+
+  async function lifecycleLines(): Promise<string[]> {
+    const contents = await readFile(lifecycleLogPath, 'utf8');
+    return contents.trim().split(/\r?\n/u).filter(Boolean);
+  }
 
   it('connects, creates a session, and routes interleaved message and plan events only to its owner', async () => {
     const owner = fakeWebContents(101);
@@ -105,7 +133,18 @@ describeOnSupportedPlatform('GrokAcpManager fake ACP process integration', () =>
     });
     expect(
       channelPayloads(owner, 'grok:connection-event').some(
-        (event) => (event as { status?: string }).status === 'ready',
+        (event) =>
+          (
+            event as {
+              status?: string;
+              authenticated?: boolean;
+              authMethod?: string;
+              logoutSupported?: boolean;
+            }
+          ).status === 'ready' &&
+          (event as { authenticated?: boolean }).authenticated === true &&
+          (event as { authMethod?: string }).authMethod === 'Cached test account' &&
+          (event as { logoutSupported?: boolean }).logoutSupported === true,
       ),
     ).toBe(true);
 
@@ -293,5 +332,171 @@ describeOnSupportedPlatform('GrokAcpManager fake ACP process integration', () =>
         (event) => event.status === 'error' && Boolean(event.detail?.includes('状态失真')),
       ),
     ).resolves.toMatchObject({ status: 'error', detail: expect.stringContaining('状态失真') });
+  });
+
+  it('fully tears down the old process before a forced reconnect starts the replacement', async () => {
+    await manager.connect();
+    await manager.reconnect();
+
+    const lines = await lifecycleLines();
+    const firstStartIndex = lines.findIndex((line) => line.startsWith('start:'));
+    const firstPid = lines[firstStartIndex]?.split(':')[1];
+    const firstStopIndex = lines.indexOf(`stop:${firstPid}`);
+    const secondStartIndex = lines.findIndex(
+      (line, index) => index > firstStartIndex && line.startsWith('start:'),
+    );
+    const secondPid = lines[secondStartIndex]?.split(':')[1];
+
+    expect(firstStartIndex).toBeGreaterThanOrEqual(0);
+    expect(firstStopIndex).toBeGreaterThan(firstStartIndex);
+    expect(secondStartIndex).toBeGreaterThan(firstStopIndex);
+    expect(secondPid).toBeTruthy();
+    expect(secondPid).not.toBe(firstPid);
+  });
+
+  it('lets a later logout cancel an in-flight reconnect and keeps the agent offline', async () => {
+    const owner = fakeWebContents(850);
+    manager.registerWebContents(owner.webContents);
+    await manager.connect();
+
+    const reconnect = manager.reconnect();
+    const logout = manager.logout();
+    const [reconnectResult, logoutResult] = await Promise.allSettled([reconnect, logout]);
+
+    expect(reconnectResult).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({
+        message: expect.stringContaining('退出账号操作取消'),
+      }),
+    });
+    expect(logoutResult).toMatchObject({
+      status: 'fulfilled',
+      value: expect.objectContaining({
+        confirmed: true,
+        status: 'logged_out',
+      }),
+    });
+
+    const lines = await lifecycleLines();
+    const cliLogoutIndex = lines.findIndex((line) => line.startsWith('cli-logout:'));
+    expect(cliLogoutIndex).toBeGreaterThanOrEqual(0);
+    expect(lines.slice(cliLogoutIndex + 1).some((line) => line.startsWith('start:'))).toBe(false);
+
+    const connectionEvents = channelPayloads<{ status: string }>(owner, 'grok:connection-event');
+    expect(connectionEvents.filter((event) => event.status === 'ready')).toHaveLength(1);
+    expect(connectionEvents.at(-1)).toMatchObject({ status: 'offline' });
+  });
+
+  it('lets a later disconnect cancel an in-flight reconnect without starting a replacement', async () => {
+    const owner = fakeWebContents(875);
+    manager.registerWebContents(owner.webContents);
+    await manager.connect();
+
+    const reconnect = manager.reconnect();
+    const disconnect = manager.disconnect();
+    const [reconnectResult, disconnectResult] = await Promise.allSettled([reconnect, disconnect]);
+
+    expect(reconnectResult).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({
+        message: expect.stringContaining('断开或退出账号操作取消'),
+      }),
+    });
+    expect(disconnectResult).toMatchObject({ status: 'fulfilled' });
+
+    const lines = await lifecycleLines();
+    expect(lines.filter((line) => line.startsWith('start:'))).toHaveLength(1);
+    const connectionEvents = channelPayloads<{ status: string }>(owner, 'grok:connection-event');
+    expect(connectionEvents.filter((event) => event.status === 'ready')).toHaveLength(1);
+  });
+
+  it('logs out through ACP, confirms teardown, then verifies with the absolute CLI', async () => {
+    const connected = await manager.connect();
+    expect(connected).toMatchObject({
+      status: 'ready',
+      authenticated: true,
+      logoutSupported: true,
+    });
+
+    const result = await manager.logout();
+    expect(result).toEqual({
+      confirmed: true,
+      status: 'logged_out',
+      accountLabel: 'fake-account@example.test',
+      detail: '已退出 Grok 登录，并确认本地代理已经停止。',
+    });
+
+    const lines = await lifecycleLines();
+    const acpLogoutIndex = lines.findIndex((line) => line.startsWith('acp-logout:'));
+    const stoppedIndex = lines.findIndex((line) => line.startsWith('stop:'));
+    const cliLogoutIndex = lines.findIndex((line) => line.startsWith('cli-logout:'));
+    expect(acpLogoutIndex).toBeGreaterThanOrEqual(0);
+    expect(stoppedIndex).toBeGreaterThan(acpLogoutIndex);
+    expect(cliLogoutIndex).toBeGreaterThan(stoppedIndex);
+  });
+
+  it('falls back to the bounded CLI logout when ACP does not advertise logout', async () => {
+    process.env.GROK_FAKE_DISABLE_ACP_LOGOUT = '1';
+    await manager.connect();
+
+    const result = await manager.logout();
+    expect(result).toMatchObject({
+      confirmed: true,
+      status: 'logged_out',
+      accountLabel: 'fake-account@example.test',
+    });
+    const lines = await lifecycleLines();
+    expect(lines.some((line) => line.startsWith('acp-logout:'))).toBe(false);
+    expect(lines.some((line) => line.startsWith('cli-logout:'))).toBe(true);
+  });
+
+  it('confirms an already logged-out CLI without starting an ACP process', async () => {
+    process.env.GROK_FAKE_CLI_LOGOUT_MODE = 'already';
+
+    await expect(manager.logout()).resolves.toMatchObject({
+      confirmed: true,
+      status: 'already_logged_out',
+      accountLabel: null,
+    });
+    const lines = await lifecycleLines();
+    expect(lines.some((line) => line.startsWith('start:'))).toBe(false);
+    expect(lines.some((line) => line.startsWith('cli-logout:'))).toBe(true);
+  });
+
+  it('never treats logout wording from a failed CLI command as confirmation', async () => {
+    process.env.GROK_FAKE_CLI_LOGOUT_MODE = 'ambiguous-fail';
+
+    await expect(manager.logout()).resolves.toMatchObject({
+      confirmed: false,
+      status: 'failed',
+      accountLabel: null,
+      detail: expect.stringContaining('未能确认 Grok 已退出'),
+    });
+    const lines = await lifecycleLines();
+    expect(lines.some((line) => line.startsWith('cli-logout:'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('start:'))).toBe(false);
+  });
+
+  it('does not attempt xai.api_key authentication when XAI_API_KEY is absent', async () => {
+    process.env.GROK_FAKE_CACHED_AUTH_FAIL = '1';
+    delete process.env.XAI_API_KEY;
+    const owner = fakeWebContents(909);
+    manager.registerWebContents(owner.webContents);
+
+    await expect(manager.connect()).rejects.toThrow();
+    const lines = await lifecycleLines();
+    expect(lines.filter((line) => line.startsWith('authenticate:'))).toEqual([
+      'authenticate:cached_token',
+    ]);
+    await expect(
+      waitForPayload<{ status: string; issueCode?: string }>(
+        owner,
+        'grok:connection-event',
+        (event) => event.status === 'error',
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      issueCode: 'authentication_required',
+    });
   });
 });

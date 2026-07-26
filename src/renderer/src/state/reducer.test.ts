@@ -56,8 +56,13 @@ function stateFixture(session = sessionFixture()): AppState {
     grokBinaryPath: '/usr/local/bin/grok',
     grokCliVersion: 'grok 0.2.112',
     grokAuthenticated: true,
+    grokAuthMethod: 'cached_token',
+    grokLogoutSupported: true,
     grokAgentName: 'Grok Build',
     grokAgentVersion: '0.2.112',
+    draftsBySessionId: {},
+    autoConnectGrok: true,
+    uiTextScale: 'large',
     pendingPermissions: [],
     sidebarCollapsed: false,
     inspectorOpen: true,
@@ -82,6 +87,69 @@ function applyEvent(state: AppState, event: UiAcpEvent): AppState {
 }
 
 describe('Grok ACP 状态归一化', () => {
+  it('persists drafts per session and clears only the submitted session', () => {
+    const other = sessionFixture({ id: 'other-session', updatedAt: 2 });
+    let state = {
+      ...stateFixture(),
+      sessions: [sessionFixture(), other],
+    };
+    state = reducer(state, {
+      type: 'DRAFT_CHANGED',
+      sessionId: 'local-session',
+      value: '主任务草稿',
+    });
+    state = reducer(state, {
+      type: 'DRAFT_CHANGED',
+      sessionId: 'other-session',
+      value: '后台草稿',
+    });
+
+    const submitted = reducer(state, {
+      type: 'USER_MESSAGE',
+      sessionId: 'local-session',
+      text: '主任务草稿',
+    });
+
+    expect(submitted.draftsBySessionId).toEqual({ 'other-session': '后台草稿' });
+    expect(submitted.sessions[0]?.timeline).toContainEqual(
+      expect.objectContaining({ type: 'message', role: 'user', content: '主任务草稿' }),
+    );
+  });
+
+  it('marks an explicit logout as signed out and clears stale agent metadata', () => {
+    const next = reducer(stateFixture(), {
+      type: 'GROK_LOGGED_OUT',
+      confirmed: true,
+      detail: '已退出 Grok 账号。',
+    });
+
+    expect(next).toMatchObject({
+      connectionStatus: 'offline',
+      connectionIssueCode: 'authentication_required',
+      grokAuthenticated: false,
+      grokAuthMethod: null,
+      grokLogoutSupported: false,
+      grokAgentName: null,
+      grokAgentVersion: null,
+      autoConnectGrok: false,
+    });
+  });
+
+  it('does not claim the account is signed out when logout cannot be confirmed', () => {
+    const next = reducer(stateFixture(), {
+      type: 'GROK_LOGGED_OUT',
+      confirmed: false,
+      detail: 'CLI 注销命令超时。',
+    });
+
+    expect(next).toMatchObject({
+      connectionStatus: 'error',
+      connectionIssueCode: 'authentication_failed',
+      grokAuthenticated: null,
+      autoConnectGrok: false,
+    });
+  });
+
   it('blocks input for every non-converged turn state', () => {
     expect(sessionBlocksInput('awaiting_permission')).toBe(true);
     expect(sessionBlocksInput('working')).toBe(true);
@@ -369,7 +437,10 @@ describe('Grok ACP 状态归一化', () => {
   });
 
   it('treats a detected CLI as preflight only and ignores stale connection attempts', () => {
-    const checking = reducer(stateFixture(), { type: 'CONNECTION_ATTEMPT', attemptId: 2 });
+    const checking = reducer(
+      { ...stateFixture(), autoConnectGrok: false },
+      { type: 'CONNECTION_ATTEMPT', attemptId: 2 },
+    );
     const stale = reducer(checking, {
       type: 'CONNECTION_RESULT',
       attemptId: 1,
@@ -392,10 +463,30 @@ describe('Grok ACP 状态归一化', () => {
       grokBinaryPath: '/Users/test/.grok/bin/grok',
       grokCliVersion: 'grok 0.2.112',
     });
+
+    const heldOffline = reducer(inspected, {
+      type: 'CONNECTION_RESULT',
+      attemptId: 2,
+      result: {
+        status: 'offline',
+        detail: '自动连接已关闭；已检测到 Grok CLI，但当前登录状态尚未验证。',
+        authenticated: null,
+        retryable: true,
+      },
+    });
+    expect(heldOffline).toMatchObject({
+      connectionStatus: 'offline',
+      connectionIssueCode: null,
+      grokAuthenticated: null,
+      autoConnectGrok: false,
+    });
   });
 
   it('refuses to append a user message to local-only history', () => {
-    const state = stateFixture(sessionFixture({ continuity: 'local-history-only' }));
+    const state = {
+      ...stateFixture(sessionFixture({ continuity: 'local-history-only' })),
+      draftsBySessionId: { 'local-session': '按刚才方案执行' },
+    };
     const next = reducer(state, {
       type: 'USER_MESSAGE',
       sessionId: 'local-session',
@@ -403,6 +494,7 @@ describe('Grok ACP 状态归一化', () => {
     });
 
     expect(next.sessions[0]?.timeline).toEqual([]);
+    expect(next.draftsBySessionId).toEqual({ 'local-session': '按刚才方案执行' });
   });
 
   it('coalesces interleaved chunks by message id instead of timeline position', () => {
@@ -589,6 +681,7 @@ describe('Grok ACP 状态归一化', () => {
     const failed = reducer(requested, {
       type: 'MODE_SWITCH_FAILED',
       sessionId: 'local-session',
+      modeId: 'plan',
       requestId: 1,
       error: 'agent rejected mode',
     });
@@ -605,6 +698,53 @@ describe('Grok ACP 状态归一化', () => {
       requestId: 0,
     });
     expect(stale.sessions[0]?.confirmedModeId).toBe('normal');
+  });
+
+  it('ignores a late mode promise failure after the agent already confirmed the target', () => {
+    const requested = reducer(stateFixture(), {
+      type: 'MODE_SWITCH_REQUESTED',
+      sessionId: 'local-session',
+      modeId: 'plan',
+      requestId: 3,
+    });
+    const agentConfirmed = reducer(requested, {
+      type: 'ACP_EVENT',
+      sessionId: 'local-session',
+      event: { type: 'mode.confirmed', currentModeId: 'plan' },
+    });
+    const lateFailure = reducer(agentConfirmed, {
+      type: 'MODE_SWITCH_FAILED',
+      sessionId: 'local-session',
+      modeId: 'plan',
+      requestId: 3,
+      error: 'timeout after confirmation',
+    });
+
+    expect(lateFailure.sessions[0]).toMatchObject({
+      confirmedModeId: 'plan',
+      requestedModeId: 'plan',
+      modeSwitchStatus: 'idle',
+      modeSwitchError: null,
+    });
+  });
+
+  it('moves a recovered draft to a newly created session without leaving a hidden copy', () => {
+    const source = {
+      ...stateFixture(),
+      draftsBySessionId: { 'local-session': '继续完成 Windows 检查' },
+    };
+    const newSession = sessionFixture({ id: 'new-session', timeline: [], continuity: 'fresh' });
+    const moved = reducer(source, {
+      type: 'SESSION_CREATED',
+      session: newSession,
+      draft: '继续完成 Windows 检查',
+      sourceDraftSessionId: 'local-session',
+    });
+
+    expect(moved.activeSessionId).toBe('new-session');
+    expect(moved.draftsBySessionId).toEqual({
+      'new-session': '继续完成 Windows 检查',
+    });
   });
 
   it('stores commands, config, and typed usage as full replacements', () => {

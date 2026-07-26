@@ -1,7 +1,43 @@
 #!/usr/bin/env node
 
+import { appendFileSync } from 'node:fs';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
+
+const lifecycleLogPath = process.env.GROK_FAKE_LIFECYCLE_LOG;
+function lifecycle(message) {
+  if (!lifecycleLogPath) return;
+  try {
+    appendFileSync(lifecycleLogPath, `${message}\n`, 'utf8');
+  } catch {
+    // Integration diagnostics must never alter the fake protocol behavior.
+  }
+}
+
+if (process.argv.includes('--version')) {
+  console.log('grok 0.0.0-fake');
+  process.exit(0);
+}
+
+if (process.argv.includes('logout')) {
+  lifecycle(`cli-logout:${process.pid}`);
+  if (process.env.GROK_FAKE_CLI_LOGOUT_MODE === 'fail') {
+    console.error('Fake CLI logout failed');
+    process.exit(2);
+  }
+  if (process.env.GROK_FAKE_CLI_LOGOUT_MODE === 'ambiguous-fail') {
+    console.error('Logout failed: token was not signed out because the server is unreachable');
+    process.exit(2);
+  }
+  if (process.env.GROK_FAKE_CLI_LOGOUT_MODE === 'already') {
+    console.log('Not logged in');
+    process.exit(0);
+  }
+  console.log('Logged out (was signed in as fake-account@example.test)');
+  process.exit(0);
+}
+
+lifecycle(`start:${process.pid}`);
 
 const ORIGINAL_PERMISSION_OPTION_ID = `allow-original::${'x'.repeat(1_200)}`;
 const sessions = new Set();
@@ -137,14 +173,32 @@ const app = acp
   .agent({ name: 'orbit-workbench-fake-agent' })
   .onRequest(acp.methods.agent.initialize, (context) => ({
     protocolVersion: context.params.protocolVersion,
-    agentCapabilities: {},
+    agentCapabilities:
+      process.env.GROK_FAKE_DISABLE_ACP_LOGOUT === '1' ? {} : { auth: { logout: {} } },
+    authMethods: [
+      { id: 'cached_token', name: 'Cached test account' },
+      { id: 'xai.api_key', name: 'XAI API key' },
+    ],
     agentInfo: {
       name: 'orbit-workbench-fake-agent',
       title: 'Orbit Fake ACP Agent',
       version: '1.0.0-test',
     },
   }))
-  .onRequest(acp.methods.agent.authenticate, () => ({}))
+  .onRequest(acp.methods.agent.authenticate, (context) => {
+    lifecycle(`authenticate:${context.params.methodId}`);
+    if (
+      context.params.methodId === 'cached_token' &&
+      process.env.GROK_FAKE_CACHED_AUTH_FAIL === '1'
+    ) {
+      throw acp.RequestError.authRequired();
+    }
+    return {};
+  })
+  .onRequest(acp.methods.agent.logout, () => {
+    lifecycle(`acp-logout:${process.pid}`);
+    return {};
+  })
   .onRequest(acp.methods.agent.session.new, async (context) => {
     sessionSequence += 1;
     const sessionId = `fake-session-${sessionSequence}`;
@@ -216,3 +270,4 @@ const input = Writable.toWeb(process.stdout);
 const output = Readable.toWeb(process.stdin);
 const connection = app.connect(acp.ndJsonStream(input, output));
 await connection.closed;
+lifecycle(`stop:${process.pid}`);

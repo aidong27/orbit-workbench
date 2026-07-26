@@ -123,6 +123,7 @@ export interface WorkSession {
 }
 
 export type InspectorTab = 'changes' | 'plan' | 'tools' | 'context';
+export type UiTextScale = 'standard' | 'large';
 
 export function sessionBlocksInput(status: SessionStatus): boolean {
   return (
@@ -146,8 +147,13 @@ export interface AppState {
   grokBinaryPath: string | null;
   grokCliVersion: string | null;
   grokAuthenticated: boolean | null;
+  grokAuthMethod: string | null;
+  grokLogoutSupported: boolean;
   grokAgentName: string | null;
   grokAgentVersion: string | null;
+  draftsBySessionId: Record<string, string>;
+  autoConnectGrok: boolean;
+  uiTextScale: UiTextScale;
   pendingPermissions: PermissionRequestEvent[];
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
@@ -163,7 +169,12 @@ export type AppAction =
   | { type: 'PROJECT_ADDED'; project: WorkspaceProject }
   | { type: 'PROJECT_UPDATED'; project: WorkspaceProject }
   | { type: 'PROJECT_SELECTED'; projectId: string }
-  | { type: 'SESSION_CREATED'; session: WorkSession }
+  | {
+      type: 'SESSION_CREATED';
+      session: WorkSession;
+      draft?: string;
+      sourceDraftSessionId?: string;
+    }
   | { type: 'SESSION_SELECTED'; sessionId: string }
   | {
       type: 'SESSION_CONNECTED';
@@ -199,6 +210,7 @@ export type AppAction =
   | {
       type: 'MODE_SWITCH_FAILED';
       sessionId: string;
+      modeId: string;
       requestId: number;
       error: string;
     }
@@ -206,6 +218,11 @@ export type AppAction =
   | { type: 'GROK_INSPECTED'; attemptId: number; result: GrokStatus }
   | { type: 'CONNECTION_RESULT'; attemptId: number; result: GrokConnectionEvent }
   | { type: 'CONNECTION_EVENT'; event: GrokConnectionEvent }
+  | { type: 'GROK_LOGGED_OUT'; confirmed: boolean; detail: string }
+  | { type: 'AUTO_CONNECT_GROK'; enabled: boolean }
+  | { type: 'DRAFT_CHANGED'; sessionId: string; value: string }
+  | { type: 'DRAFT_CLEARED'; sessionId: string }
+  | { type: 'UI_TEXT_SCALE'; scale: UiTextScale }
   | { type: 'PERMISSION_REQUEST'; request: PermissionRequestEvent }
   | { type: 'PERMISSION_CLEARED'; requestId: string }
   | { type: 'SIDEBAR_TOGGLED' }

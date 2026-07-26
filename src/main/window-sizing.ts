@@ -24,8 +24,8 @@ export function windowSizeForWorkArea(
 ): WindowSize {
   const width = boundedDimension(workArea.width, PREFERRED_WIDTH);
   const height = boundedDimension(workArea.height, PREFERRED_HEIGHT);
-  const preferredMinWidth = platform === 'darwin' ? 980 : 760;
-  const preferredMinHeight = platform === 'darwin' ? 680 : 560;
+  const preferredMinWidth = platform === 'darwin' ? 980 : 560;
+  const preferredMinHeight = platform === 'darwin' ? 680 : 420;
 
   return {
     width,

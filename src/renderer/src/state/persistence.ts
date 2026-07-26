@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { AppState, TimelineItem, WorkSession, WorkspaceProject } from './model';
 import { reconcilePlanEntries } from './plan';
 
-const PERSISTED_STATE_KEY = 'orbit-workbench-state-v3';
+const PERSISTED_STATE_KEY = 'orbit-workbench-state-v4';
+const V3_STATE_KEY = 'orbit-workbench-state-v3';
 const V2_STATE_KEY = 'orbit-workbench-state-v2';
 const LEGACY_STATE_KEY = 'orbit-workbench-state-v1';
 const MAX_PERSISTED_SESSIONS = 40;
@@ -10,6 +11,8 @@ const MAX_PERSISTED_TIMELINE_ITEMS = 160;
 const MAX_PERSISTED_SESSION_CHARACTERS = 1_000_000;
 const MAX_MESSAGE_CHARACTERS = 200_000;
 const MAX_THOUGHT_CHARACTERS = 80_000;
+const MAX_PERSISTED_DRAFT_CHARACTERS = 200_000;
+const MAX_PERSISTED_DRAFT_CHARACTERS_TOTAL = 500_000;
 
 const projectSchema = z.object({
   id: z.string().min(1).max(256),
@@ -130,6 +133,17 @@ const persistedDataSchema = z.object({
   sidebarCollapsed: z.boolean().optional(),
   inspectorOpen: z.boolean().optional(),
   inspectorTab: z.enum(['changes', 'plan', 'tools', 'context']).optional(),
+  draftsBySessionId: z
+    .record(z.string().max(256), z.string().max(MAX_PERSISTED_DRAFT_CHARACTERS))
+    .optional(),
+  autoConnectGrok: z.boolean().optional(),
+  uiTextScale: z.enum(['standard', 'large']).optional(),
+});
+
+const persistedEnvelopeV4Schema = z.object({
+  schemaVersion: z.literal(4),
+  savedAt: z.number().finite(),
+  data: persistedDataSchema,
 });
 
 const persistedEnvelopeV3Schema = z.object({
@@ -253,6 +267,18 @@ function normalizePersistedState(fallback: AppState, value: unknown): AppState |
     requestedSession?.projectId === activeProjectId
       ? requestedSession.id
       : (sessions.find((session) => session.projectId === activeProjectId)?.id ?? null);
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const draftsBySessionId: Record<string, string> = {};
+  let draftCharacters = 0;
+  for (const [sessionId, draft] of Object.entries(parsed.data.draftsBySessionId ?? {})) {
+    if (!sessionIds.has(sessionId) || !draft) continue;
+    const remaining = MAX_PERSISTED_DRAFT_CHARACTERS_TOTAL - draftCharacters;
+    if (remaining <= 0) break;
+    const bounded = draft.slice(0, Math.min(MAX_PERSISTED_DRAFT_CHARACTERS, remaining));
+    if (!bounded) continue;
+    draftsBySessionId[sessionId] = bounded;
+    draftCharacters += bounded.length;
+  }
 
   return {
     ...fallback,
@@ -263,6 +289,9 @@ function normalizePersistedState(fallback: AppState, value: unknown): AppState |
     sidebarCollapsed: parsed.data.sidebarCollapsed ?? fallback.sidebarCollapsed,
     inspectorOpen: parsed.data.inspectorOpen ?? fallback.inspectorOpen,
     inspectorTab: parsed.data.inspectorTab ?? fallback.inspectorTab,
+    draftsBySessionId,
+    autoConnectGrok: parsed.data.autoConnectGrok ?? fallback.autoConnectGrok,
+    uiTextScale: parsed.data.uiTextScale ?? fallback.uiTextScale,
     pendingPermissions: [],
   };
 }
@@ -283,9 +312,20 @@ export function loadState(fallback: AppState): AppState {
   try {
     const currentRaw = localStorage.getItem(PERSISTED_STATE_KEY);
     if (currentRaw) {
-      const envelope = persistedEnvelopeV3Schema.safeParse(parseJson(currentRaw));
+      const envelope = persistedEnvelopeV4Schema.safeParse(parseJson(currentRaw));
       if (envelope.success) return rehydrateState(fallback, envelope.data.data);
       return fallback;
+    }
+
+    const v3Raw = localStorage.getItem(V3_STATE_KEY);
+    if (v3Raw) {
+      const envelope = persistedEnvelopeV3Schema.safeParse(parseJson(v3Raw));
+      if (!envelope.success) return fallback;
+      const migrated = normalizePersistedState(fallback, envelope.data.data);
+      if (!migrated) return fallback;
+      const safelyDisconnected = { ...migrated, autoConnectGrok: false };
+      saveState(safelyDisconnected);
+      return safelyDisconnected;
     }
 
     const v2Raw = localStorage.getItem(V2_STATE_KEY);
@@ -294,16 +334,18 @@ export function loadState(fallback: AppState): AppState {
       if (!envelope.success) return fallback;
       const migrated = normalizePersistedState(fallback, envelope.data.data);
       if (!migrated) return fallback;
-      saveState(migrated);
-      return migrated;
+      const safelyDisconnected = { ...migrated, autoConnectGrok: false };
+      saveState(safelyDisconnected);
+      return safelyDisconnected;
     }
 
     const legacyRaw = localStorage.getItem(LEGACY_STATE_KEY);
     if (!legacyRaw) return fallback;
     const migrated = normalizePersistedState(fallback, parseJson(legacyRaw));
     if (!migrated) return fallback;
-    saveState(migrated);
-    return migrated;
+    const safelyDisconnected = { ...migrated, autoConnectGrok: false };
+    saveState(safelyDisconnected);
+    return safelyDisconnected;
   } catch {
     return fallback;
   }
@@ -361,7 +403,9 @@ export function saveState(state: AppState): boolean {
   );
   const sessions = [
     ...(activeSession ? [activeSession] : []),
-    ...state.sessions.filter((session) => session.id !== activeSession?.id && !session.demo),
+    ...state.sessions
+      .filter((session) => session.id !== activeSession?.id && !session.demo)
+      .sort((left, right) => right.updatedAt - left.updatedAt),
   ]
     .filter((session) => projectIds.has(session.projectId))
     .slice(0, MAX_PERSISTED_SESSIONS)
@@ -375,8 +419,22 @@ export function saveState(state: AppState): boolean {
       updatedAt: session.updatedAt,
       requestedModeId: session.requestedModeId,
     }));
+  const retainedSessionIds = new Set(sessions.map((session) => session.id));
+  const draftsBySessionId: Record<string, string> = {};
+  let draftCharacters = 0;
+  for (const session of sessions) {
+    if (!retainedSessionIds.has(session.id)) continue;
+    const draft = state.draftsBySessionId[session.id];
+    if (!draft) continue;
+    const remaining = MAX_PERSISTED_DRAFT_CHARACTERS_TOTAL - draftCharacters;
+    if (remaining <= 0) break;
+    const bounded = draft.slice(0, Math.min(MAX_PERSISTED_DRAFT_CHARACTERS, remaining));
+    if (!bounded) continue;
+    draftsBySessionId[session.id] = bounded;
+    draftCharacters += bounded.length;
+  }
   const envelope = {
-    schemaVersion: 3 as const,
+    schemaVersion: 4 as const,
     savedAt: Date.now(),
     data: {
       projects,
@@ -391,10 +449,14 @@ export function saveState(state: AppState): boolean {
       sidebarCollapsed: state.sidebarCollapsed,
       inspectorOpen: state.inspectorOpen,
       inspectorTab: state.inspectorTab,
+      draftsBySessionId,
+      autoConnectGrok: state.autoConnectGrok,
+      uiTextScale: state.uiTextScale,
     },
   };
   try {
     localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(envelope));
+    localStorage.removeItem(V3_STATE_KEY);
     localStorage.removeItem(V2_STATE_KEY);
     localStorage.removeItem(LEGACY_STATE_KEY);
     return true;
@@ -406,6 +468,7 @@ export function saveState(state: AppState): boolean {
 
 export const persistenceTestHelpers = {
   PERSISTED_STATE_KEY,
+  V3_STATE_KEY,
   V2_STATE_KEY,
   LEGACY_STATE_KEY,
   normalizePersistedState,

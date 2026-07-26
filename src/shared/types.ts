@@ -9,6 +9,7 @@ export type ConnectionStatus =
 export type ConnectionIssueCode =
   | 'binary_missing'
   | 'version_check_failed'
+  | 'authentication_required'
   | 'authentication_failed'
   | 'authentication_unsupported'
   | 'protocol_incompatible'
@@ -223,8 +224,18 @@ export interface GrokConnectionEvent {
   detail?: string;
   agentName?: string;
   agentVersion?: string;
+  authenticated?: boolean | null;
+  authMethod?: string | null;
+  logoutSupported?: boolean;
   issueCode?: ConnectionIssueCode;
   retryable?: boolean;
+}
+
+export interface GrokLogoutResult {
+  confirmed: boolean;
+  status: 'logged_out' | 'already_logged_out' | 'failed';
+  accountLabel: string | null;
+  detail: string;
 }
 
 export interface PermissionOption {
@@ -259,6 +270,8 @@ export interface GrokDesktopApi {
   inspectProject(path: string): Promise<ProjectSummary>;
   checkGrok(): Promise<GrokStatus>;
   connectGrok(): Promise<GrokConnectionEvent>;
+  reconnectGrok(): Promise<GrokConnectionEvent>;
+  logoutGrok(): Promise<GrokLogoutResult>;
   createSession(cwd: string): Promise<CreatedSession>;
   sendPrompt(sessionId: string, text: string): Promise<PromptResult>;
   cancelSession(sessionId: string): Promise<void>;

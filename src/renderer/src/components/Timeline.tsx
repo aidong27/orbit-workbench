@@ -55,6 +55,7 @@ function MessageCard({ item }: { item: MessageItem }) {
   }
   return (
     <article className="timeline-message timeline-message--assistant">
+      <span className="visually-hidden">Grok：</span>
       <div className="assistant-avatar">
         <OrbitMark size={24} active={item.streaming} />
       </div>
@@ -142,16 +143,18 @@ function ToolCard({ item }: { item: ToolItem }) {
       {open && (
         <div className="tool-card__details">
           {rawInput && (
-            <div>
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: long tool payloads need keyboard scrolling.
+            <section aria-label={`${item.title}的工具输入`} tabIndex={0}>
               <span>输入</span>
               <pre>{rawInput}</pre>
-            </div>
+            </section>
           )}
           {rawOutput && (
-            <div>
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: long tool payloads need keyboard scrolling.
+            <section aria-label={`${item.title}的工具输出`} tabIndex={0}>
               <span>输出</span>
               <pre>{rawOutput}</pre>
-            </div>
+            </section>
           )}
         </div>
       )}
@@ -310,9 +313,16 @@ export function Timeline({
   }, [scrollToLatest]);
 
   return (
-    <div
+    <section
       className="conversation-scroll"
       ref={scrollRef}
+      aria-label={`${session.title}的对话记录`}
+      aria-busy={
+        session.status === 'working' ||
+        session.status === 'connecting' ||
+        session.status === 'awaiting_permission' ||
+        session.status === 'cancelling'
+      }
       onScroll={(event) => {
         const node = event.currentTarget;
         const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 72;
@@ -349,6 +359,6 @@ export function Timeline({
           <ArrowDown size={13} /> 跳到最新
         </button>
       )}
-    </div>
+    </section>
   );
 }
