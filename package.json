@@ -35,14 +35,14 @@
     "dist:win": "pnpm electron:prepare && pnpm build && electron-builder --win --x64 --publish never"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.2.1",
+    "@agentclientprotocol/sdk": "1.4.0",
     "clsx": "2.1.1",
-    "lucide-react": "1.25.0",
+    "lucide-react": "1.40.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
